@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyShot, breakCombo, initialScoreState, type ScoreState, type ShotHit } from './score';
+import { applyShot, breakCombo, initialScoreState, ZONE_COLOR, type ScoreState, type ShotHit, type Zone } from './score';
 import { pickSpawnPoint, waveConfig } from './spawner';
 import { castRay, type RayHit } from './hitscan';
 import { Weapon, WEAPON_PARAMS } from './weapon';
@@ -111,9 +111,26 @@ export class Game {
       combo: this.score.combo,
     });
     this.hud.drawArrows(this.view.camera, this.targets);
+    this.hud.setAim(this.aimAt());
     this.sfx.updateListener(this.view.camera);
 
     if (this.elapsed >= this.duration) this.finish();
+  }
+
+  /** 照準（画面中央）の下にあるもの */
+  private aimAt(): Zone | 'item' | null {
+    const camera = this.view.camera;
+    camera.updateMatrixWorld();
+    const hit = castRay(camera, 0, 0, this.raycastObjects(), false)[0];
+    if (!hit) return null;
+    return hit.kind === 'item' ? 'item' : hit.zone;
+  }
+
+  private raycastObjects(): THREE.Object3D[] {
+    return [
+      ...this.targets.filter((t) => t.alive).map((t) => t.mesh),
+      ...this.items.filter((i) => !i.dead).map((i) => i.mesh),
+    ];
   }
 
   fire(): void {
@@ -130,10 +147,7 @@ export class Game {
     const camera = this.view.camera;
     camera.updateMatrixWorld();
     const spec = this.weapon.spec;
-    const objects: THREE.Object3D[] = [
-      ...this.targets.filter((t) => t.alive).map((t) => t.mesh),
-      ...this.items.filter((i) => !i.dead).map((i) => i.mesh),
-    ];
+    const objects = this.raycastObjects();
     const muzzle = camera.localToWorld(MUZZLE.clone());
 
     // 全ペレットの判定を先に行う（同じ的に複数ペレットが当たってもよい）
@@ -196,6 +210,8 @@ export class Game {
   private onTargetHit(h: Extract<RayHit, { kind: 'target' }>, points: number): void {
     const wasAlive = h.target.alive;
     h.target.hit();
+    const hl = h.target.skin.highlights?.[h.zone];
+    if (hl) this.effects.zoneFlash(h.target.mesh, hl, ZONE_COLOR[h.zone]);
     this.effects.splash(h.target.mesh, h.point);
     this.effects.shockwave(h.point, this.view.camera.position);
     this.hud.popup(this.view.camera, h.point, h.zone, points);

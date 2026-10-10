@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { toCartesian, SPAWN_PARAMS, type SpawnPoint } from '../core/spawner';
 import type { ZoneMask } from '../face/zoneMask';
+import type { Zone } from '../core/score';
 
 const DEG = Math.PI / 180;
 const geometry = new THREE.PlaneGeometry(1, 1);
@@ -8,6 +9,8 @@ const geometry = new THREE.PlaneGeometry(1, 1);
 export interface FaceSkin {
   texture: THREE.Texture;
   mask: ZoneMask;
+  /** 部位ごとの白塗り画像（命中時に光らせる） */
+  highlights?: Partial<Record<Zone, THREE.Texture>>;
 }
 
 export type TargetState = 'enter' | 'alive' | 'hit' | 'leave' | 'dead';
@@ -19,6 +22,7 @@ const HIT_HOLD_SEC = 0.45;
 export class Target {
   readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   readonly mask: ZoneMask;
+  readonly skin: FaceSkin;
   state: TargetState = 'enter';
   azimuth: number;
   elevation: number;
@@ -36,6 +40,7 @@ export class Target {
 
   constructor(skin: FaceSkin, p: SpawnPoint, opts: { moving: boolean; speed: number; rng: () => number }) {
     const { rng } = opts;
+    this.skin = skin;
     this.mask = skin.mask;
     this.azimuth = p.azimuth;
     this.elevation = this.baseElevation = p.elevation;
@@ -46,7 +51,7 @@ export class Target {
     this.bobAmp = opts.moving ? (4 + rng() * 6) * DEG : 0;
     this.bobFreq = 0.5 + rng();
     // 遠くても見えるよう、距離に応じて少し大きくする
-    this.size = (p.rare ? 0.8 : 1.1) * (0.7 + 0.3 * (p.distance / SPAWN_PARAMS.distanceMin));
+    this.size = (p.rare ? 1.0 : 1.35) * (0.7 + 0.3 * (p.distance / SPAWN_PARAMS.distanceMin));
     this.lifeSec = 6 + rng() * 4;
     this.mesh = new THREE.Mesh(
       geometry,

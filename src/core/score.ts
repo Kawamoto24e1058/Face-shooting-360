@@ -27,6 +27,25 @@ export const ZONE_LABEL: Record<Zone, string> = {
   chin: 'CHIN!',
 };
 
+/** 部位の表示色（照準・命中ラベル・判定エリア表示で共通） */
+export const ZONE_COLOR: Record<Zone, string> = {
+  forehead: '#ffc828',
+  eye: '#ff285a',
+  nose: '#3cdcff',
+  mouth: '#b450ff',
+  cheek: '#50ff78',
+  chin: '#ff8228',
+};
+
+export const ZONE_NAME_JA: Record<Zone, string> = {
+  forehead: '額',
+  eye: '目',
+  nose: '鼻',
+  mouth: '口',
+  cheek: '頬',
+  chin: '顎',
+};
+
 export const SCORE_PARAMS = {
   /** 連続ヒット1回あたりのコンボ倍率の上昇幅。リロードでコンボが切れるため、1マガジン(12発)内で上限に届く値にしている */
   comboStep: 0.4,

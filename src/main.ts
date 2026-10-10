@@ -1,5 +1,4 @@
 import './style.css';
-import * as THREE from 'three';
 import { registerSW } from 'virtual:pwa-register';
 import { OrientationController, requestOrientationPermission } from './core/orientation';
 import { CameraFeed } from './core/camera';
@@ -10,7 +9,7 @@ import type { FaceSkin } from './render/target';
 import { Sfx } from './audio/sfx';
 import { Hud } from './ui/hud';
 import { createDummyFace } from './face/dummyFace';
-import { ZoneMask } from './face/zoneMask';
+import { createFaceSkin, disposeFaceSkin } from './render/skin';
 import { store, submitResult, updateSettings } from './state/store';
 import { calibrateScreen, countdownScreen, resultScreen, titleScreen } from './screens/screens';
 import { captureScreen, type CaptureDone } from './screens/capture';
@@ -40,14 +39,10 @@ let dummySkins: FaceSkin[] | null = null;
 /** 「サンプルの顔で遊ぶ」を選んだ（このセッションのみ） */
 let useSample = false;
 
-function skinFrom(texture: HTMLCanvasElement, mask: HTMLCanvasElement): FaceSkin {
-  const tex = new THREE.CanvasTexture(texture);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return { texture: tex, mask: ZoneMask.fromCanvas(mask) };
-}
+const skinFrom = createFaceSkin;
 
 function setFace(texture: HTMLCanvasElement, mask: HTMLCanvasElement): void {
-  faceSkin?.texture.dispose();
+  if (faceSkin) disposeFaceSkin(faceSkin);
   faceSkin = skinFrom(texture, mask);
   const thumb = document.createElement('canvas');
   thumb.width = thumb.height = 192;
@@ -56,7 +51,7 @@ function setFace(texture: HTMLCanvasElement, mask: HTMLCanvasElement): void {
 }
 
 function clearFace(): void {
-  faceSkin?.texture.dispose();
+  if (faceSkin) disposeFaceSkin(faceSkin);
   faceSkin = null;
   faceThumb = null;
 }

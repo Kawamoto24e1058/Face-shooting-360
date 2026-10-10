@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ZONE_LABEL, type Zone } from '../core/score';
+import { ZONE_BASE, ZONE_COLOR, ZONE_LABEL, ZONE_NAME_JA, type Zone } from '../core/score';
 import type { Target } from '../render/target';
 
 export interface HudValues {
@@ -27,6 +27,9 @@ export class Hud {
   private readonly combo: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly reloadBtn: HTMLButtonElement;
+  private readonly reticle: HTMLElement;
+  private readonly aim: HTMLElement;
+  private aimKey: string | null = null;
   private readonly overlay: HTMLCanvasElement;
   private readonly octx: CanvasRenderingContext2D;
   private readonly ink: HTMLElement;
@@ -39,7 +42,8 @@ export class Hud {
       <div class="hud-top"><span data-k="time"></span><span data-k="score"></span></div>
       <div class="combo" data-k="combo"></div>
       <div class="combo" data-k="banner" style="top:40%;font-size:28px;color:#fff"></div>
-      <div class="reticle"></div>
+      <div class="reticle" data-k="reticle"></div>
+      <div class="reticle-label" data-k="aim"></div>
       <div class="hud-bottom">
         <div><div class="ammo" data-k="ammo"></div><div class="weapon" data-k="weapon"></div></div>
         <button class="reload-btn" data-k="reload" type="button">RELOAD</button>
@@ -52,6 +56,8 @@ export class Hud {
     this.combo = q('combo');
     this.banner = q('banner');
     this.reloadBtn = q('reload') as HTMLButtonElement;
+    this.reticle = q('reticle');
+    this.aim = q('aim');
     this.reloadBtn.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       onReload();
@@ -86,6 +92,23 @@ export class Hud {
     this.reloadBtn.classList.toggle('busy', h.reloading);
   }
 
+  /** 照準の下にある部位を、レティクルの色と名前・基本点で示す */
+  setAim(target: Zone | 'item' | null): void {
+    if (target === this.aimKey) return;
+    this.aimKey = target;
+    if (target === null) {
+      this.reticle.style.borderColor = '';
+      this.reticle.classList.remove('locked');
+      this.aim.textContent = '';
+      return;
+    }
+    const color = target === 'item' ? '#ffffff' : ZONE_COLOR[target];
+    this.reticle.style.borderColor = color;
+    this.reticle.classList.add('locked');
+    this.aim.style.color = color;
+    this.aim.textContent = target === 'item' ? 'アイテム' : `${ZONE_NAME_JA[target]} ${ZONE_BASE[target]}`;
+  }
+
   showBanner(text: string, sec = 1.5): void {
     this.banner.textContent = text;
     window.setTimeout(() => {
@@ -100,8 +123,10 @@ export class Hud {
     const d = document.createElement('div');
     d.className = 'popup';
     d.style.left = `${((v.x + 1) / 2) * window.innerWidth}px`;
-    d.style.top = `${((1 - v.y) / 2) * window.innerHeight}px`;
-    d.innerHTML = `${ZONE_LABEL[zone]}<small>+${points}</small>`;
+    // 照準と重ならないよう少し上に出す
+    d.style.top = `${((1 - v.y) / 2) * window.innerHeight - 56}px`;
+    d.style.color = ZONE_COLOR[zone];
+    d.innerHTML = `${ZONE_LABEL[zone]}<small>${ZONE_NAME_JA[zone]} +${points}</small>`;
     this.el.appendChild(d);
     window.setTimeout(() => d.remove(), 800);
   }

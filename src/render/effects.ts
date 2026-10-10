@@ -88,6 +88,23 @@ export class Effects {
     });
   }
 
+  /** 命中した部位の範囲を一瞬光らせる（どこに当たったかを分かりやすくする。演出OFFでも表示） */
+  zoneFlash(target: THREE.Object3D, highlight: THREE.Texture, color: string): void {
+    const mat = new THREE.MeshBasicMaterial({ map: highlight, color, transparent: true, depthWrite: false });
+    const m = new THREE.Mesh(this.planeGeo, mat);
+    m.position.z = 0.005;
+    target.add(m);
+    this.add({
+      obj: m,
+      age: 0,
+      life: 0.6,
+      tick: (t) => {
+        mat.opacity = 0.75 * (1 - t * t);
+      },
+      dispose: () => mat.dispose(),
+    });
+  }
+
   /** 衝撃波リング */
   shockwave(worldPoint: THREE.Vector3, facing: THREE.Vector3): void {
     if (!this.enabled) return;
