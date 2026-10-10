@@ -128,6 +128,12 @@ export class OrientationController {
     }
   }
 
+  /** ドラッグ操作時の視線を直接設定する（開発時の自動テスト用） */
+  setDragAngles(yaw: number, pitch: number): void {
+    this.dragYaw = yaw;
+    this.dragPitch = pitch;
+  }
+
   // ---- ドラッグ操作 ----
   /** pointerdown（センサーが無いときだけドラッグを始める） */
   dragStart(e: PointerEvent): void {

@@ -42,7 +42,7 @@ html, body {
 .btn.secondary { background: #2a2a3a; }
 .btn:disabled { opacity: 0.4; }
 .settings { display: grid; gap: 10px; text-align: left; width: min(320px, 100%); }
-.settings label { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.settings label, .settings .setting-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .countdown { font-size: 120px; font-weight: 900; text-shadow: 0 4px 24px rgba(0,0,0,0.5); }
 .result-table { border-collapse: collapse; min-width: 240px; }
 .result-table td { padding: 4px 12px; border-bottom: 1px solid #2a2a3a; }
@@ -86,3 +86,14 @@ html, body {
   .popup { animation-duration: 0.9s; }
 }
 .on-camera { color: #fff !important; text-shadow: 0 2px 6px #000; }
+
+/* 顔の取り込み */
+.face-preview { position: relative; width: min(240px, 60vw); aspect-ratio: 1; }
+.face-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 15px; text-align: left; max-width: 30em; }
+.check input { width: 22px; height: 22px; flex: none; }
+.check.consent { font-weight: 700; }
+.link { appearance: none; background: none; border: 0; color: var(--muted); text-decoration: underline; font-size: 15px; padding: 8px; }
+.face-thumb { width: 96px; height: 96px; border-radius: 50%; background: #2a2a3a; object-fit: contain; }
+.row { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.btn.small { min-width: 0; padding: 8px 16px; font-size: 14px; }

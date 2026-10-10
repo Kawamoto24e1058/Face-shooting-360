@@ -13,6 +13,8 @@ import { createDummyFace } from './face/dummyFace';
 import { ZoneMask } from './face/zoneMask';
 import { store, submitResult, updateSettings } from './state/store';
 import { calibrateScreen, countdownScreen, resultScreen, titleScreen } from './screens/screens';
+import { captureScreen, type CaptureDone } from './screens/capture';
+import { blobToCanvas, canvasToBlob, deleteFace, loadFace, saveFace } from './face/store';
 import { isInAppBrowser, isSecure, ScreenWakeLock } from './util/env';
 
 registerSW({ immediate: true });
@@ -30,13 +32,68 @@ let game: Game | null = null;
 
 const hud = new Hud($('hud'), $<HTMLCanvasElement>('overlay'), $('ink'), () => game?.reload());
 
-// 段階2: ダミー顔。段階3で写真から作った顔（IndexedDB保存）に差し替える
-const skins: FaceSkin[] = [20, 35, 200, 300].map((hue) => {
-  const { texture, mask } = createDummyFace(hue);
+// ---- 顔 ----
+
+let faceSkin: FaceSkin | null = null;
+let faceThumb: HTMLCanvasElement | null = null;
+let dummySkins: FaceSkin[] | null = null;
+/** 「サンプルの顔で遊ぶ」を選んだ（このセッションのみ） */
+let useSample = false;
+
+function skinFrom(texture: HTMLCanvasElement, mask: HTMLCanvasElement): FaceSkin {
   const tex = new THREE.CanvasTexture(texture);
   tex.colorSpace = THREE.SRGBColorSpace;
   return { texture: tex, mask: ZoneMask.fromCanvas(mask) };
-});
+}
+
+function setFace(texture: HTMLCanvasElement, mask: HTMLCanvasElement): void {
+  faceSkin?.texture.dispose();
+  faceSkin = skinFrom(texture, mask);
+  const thumb = document.createElement('canvas');
+  thumb.width = thumb.height = 192;
+  thumb.getContext('2d')!.drawImage(texture, 0, 0, 192, 192);
+  faceThumb = thumb;
+}
+
+function clearFace(): void {
+  faceSkin?.texture.dispose();
+  faceSkin = null;
+  faceThumb = null;
+}
+
+async function restoreFace(): Promise<void> {
+  const f = await loadFace();
+  if (!f) return;
+  try {
+    setFace(await blobToCanvas(f.texture), await blobToCanvas(f.mask));
+  } catch {
+    clearFace();
+  }
+}
+
+async function persistFace(d: CaptureDone): Promise<void> {
+  try {
+    await saveFace({
+      texture: await canvasToBlob(d.cutout.texture),
+      mask: await canvasToBlob(d.cutout.mask),
+      landmarks: d.cutout.landmarks,
+      blendshapes: d.blendshapes,
+      createdAt: Date.now(),
+    });
+  } catch {
+    // 保存できなくても今回のプレイは続けられる（次回は取り込み直し）
+  }
+}
+
+function currentSkins(): FaceSkin[] {
+  if (faceSkin && !useSample) return [faceSkin];
+  // 顔を取り込んでいない場合のサンプル（図形描画のダミー顔）
+  dummySkins ??= [20, 35, 200, 300].map((hue) => {
+    const { texture, mask } = createDummyFace(hue);
+    return skinFrom(texture, mask);
+  });
+  return dummySkins;
+}
 
 function show(node: HTMLElement | null): void {
   screenRoot.replaceChildren(...(node ? [node] : []));
@@ -62,11 +119,44 @@ function goTitle(): void {
       bestScore: st.bestScore,
       inAppBrowser: isInAppBrowser(),
       insecure: !isSecure(),
-      onStart: () => void start(),
+      faceThumb,
+      onStart: () => {
+        if (faceSkin) {
+          useSample = false;
+          void start();
+        } else {
+          goCapture();
+        }
+      },
+      onRecapture: goCapture,
+      onDeleteFace: () => {
+        if (!confirm('この端末に保存した顔データを削除しますか？')) return;
+        clearFace();
+        void deleteFace().finally(goTitle);
+      },
       onSettings: (patch) => {
         updateSettings(patch);
         applySettings();
       },
+    }),
+  );
+}
+
+function goCapture(): void {
+  show(
+    captureScreen({
+      onConfirm: (d) => {
+        // センサー許可はこのタップ内で取る必要があるので、保存より先に start() を呼ぶ
+        setFace(d.cutout.texture, d.cutout.mask);
+        useSample = false;
+        void start();
+        void persistFace(d);
+      },
+      onSkip: () => {
+        useSample = true;
+        void start();
+      },
+      onBack: goTitle,
     }),
   );
 }
@@ -121,7 +211,7 @@ function goPlay(): void {
   show(null);
   hud.show(true);
   void wakeLock.acquire();
-  game = new Game(view, effects, sfx, hud, skins, store.getState().settings, (result) => {
+  game = new Game(view, effects, sfx, hud, currentSkins(), store.getState().settings, (result) => {
     const prevBest = store.getState().bestScore;
     hud.show(false);
     game?.dispose();
@@ -185,6 +275,16 @@ async function waitFor(cond: () => boolean, timeoutMs: number): Promise<void> {
   while (!cond() && performance.now() < end) await sleep(50);
 }
 
+if (import.meta.env.DEV) {
+  // 自動テスト用：最寄りの的に照準を合わせる（センサーが無い環境のみ有効）
+  (window as unknown as Record<string, unknown>).__debugAim = (du = 0, dv = 0) => {
+    const t = game?.activeTargets[0];
+    if (!t) return false;
+    orientation.setDragAngles(t.azimuth + du, t.elevation + dv);
+    return true;
+  };
+}
+
 applySettings();
-goTitle();
 requestAnimationFrame(frame);
+void restoreFace().finally(goTitle);

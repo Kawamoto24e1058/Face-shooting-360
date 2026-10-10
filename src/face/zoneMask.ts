@@ -33,3 +33,31 @@ export class ZoneMask {
 }
 
 export type { Zone };
+
+const PREVIEW_COLORS: Record<ZoneOrNone, [number, number, number, number]> = {
+  none: [0, 0, 0, 0],
+  forehead: [255, 200, 40, 150],
+  eye: [255, 40, 90, 190],
+  nose: [60, 220, 255, 170],
+  mouth: [180, 80, 255, 170],
+  cheek: [80, 255, 120, 90],
+  chin: [255, 130, 40, 150],
+};
+
+/** 確認画面で見せるための色付きマスク */
+export function colorizeMask(src: HTMLCanvasElement): HTMLCanvasElement {
+  const m = ZoneMask.fromCanvas(src);
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = src.height;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(c.width, c.height);
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      const col = PREVIEW_COLORS[m.sample((x + 0.5) / c.width, 1 - (y + 0.5) / c.height)];
+      img.data.set(col, (y * c.width + x) * 4);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}

@@ -25,7 +25,11 @@ export interface TitleOptions {
   bestScore: number;
   inAppBrowser: boolean;
   insecure: boolean;
+  /** 保存済みの顔のサムネイル（無ければ null） */
+  faceThumb: HTMLCanvasElement | null;
   onStart: () => void;
+  onRecapture: () => void;
+  onDeleteFace: () => void;
   onSettings: (patch: Partial<Settings>) => void;
 }
 
@@ -51,6 +55,7 @@ export function titleScreen(o: TitleOptions): HTMLElement {
     el('p', { className: 'note', textContent: '（仮タイトル）360°見回して、出てくる顔の的を撃つ90秒のスコアアタック' }),
     ...warnings,
     el('div', { className: 'warn', textContent: '⚠ 体ごと回って遊びます。周囲に人や物がないか確認してください。座って遊ぶときは「座りモード」をONにしてください。' }),
+    faceRow(o),
     button('スタート', o.onStart),
     el('div', { className: 'settings' }, [
       toggle('座りモード（前方のみ）', 'seated'),
@@ -58,10 +63,24 @@ export function titleScreen(o: TitleOptions): HTMLElement {
       toggle('演出（インク・衝撃波）', 'effects'),
       el('label', {}, ['音量', volume]),
       el('label', {}, ['同時に出る的の上限', maxTargets]),
+      ...(o.faceThumb ? [el('div', { className: 'setting-row' }, ['顔データ（端末内）', small(button('削除', o.onDeleteFace, true))])] : []),
     ]),
     el('p', { className: 'note', textContent: `ベストスコア: ${o.bestScore.toLocaleString()}` }),
     el('p', { className: 'note', textContent: 'カメラ映像・顔データは端末内だけで処理し、外部に送信しません。' }),
   ]);
+}
+
+function small(b: HTMLButtonElement): HTMLButtonElement {
+  b.classList.add('small');
+  return b;
+}
+
+function faceRow(o: TitleOptions): HTMLElement {
+  if (!o.faceThumb) {
+    return el('p', { className: 'note', textContent: 'スタートすると、最初に自分の顔写真を1枚取り込みます。' });
+  }
+  o.faceThumb.className = 'face-thumb';
+  return el('div', { className: 'row' }, [o.faceThumb, small(button('顔を撮り直す', o.onRecapture, true))]);
 }
 
 export function calibrateScreen(o: { sensor: boolean; camera: boolean; onReady: () => void }): HTMLElement {

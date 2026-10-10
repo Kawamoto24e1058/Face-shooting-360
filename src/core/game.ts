@@ -49,6 +49,10 @@ export class Game {
     private readonly onEnd: (result: ScoreState) => void,
   ) {}
 
+  get activeTargets(): readonly Target[] {
+    return this.targets.filter((t) => t.alive);
+  }
+
   get timeLeft(): number {
     return Math.max(0, this.duration - this.elapsed);
   }
