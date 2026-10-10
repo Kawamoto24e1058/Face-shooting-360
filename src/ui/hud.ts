@@ -27,7 +27,6 @@ export class Hud {
   private readonly combo: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly reloadBtn: HTMLButtonElement;
-  private readonly reticle: HTMLElement;
   private readonly aim: HTMLElement;
   private aimKey: string | null = null;
   private readonly overlay: HTMLCanvasElement;
@@ -42,7 +41,7 @@ export class Hud {
       <div class="hud-top"><span data-k="time"></span><span data-k="score"></span></div>
       <div class="combo" data-k="combo"></div>
       <div class="combo" data-k="banner" style="top:40%;font-size:28px;color:#fff"></div>
-      <div class="reticle" data-k="reticle"></div>
+      <div class="reticle"></div>
       <div class="reticle-label" data-k="aim"></div>
       <div class="hud-bottom">
         <div><div class="ammo" data-k="ammo"></div><div class="weapon" data-k="weapon"></div></div>
@@ -56,7 +55,6 @@ export class Hud {
     this.combo = q('combo');
     this.banner = q('banner');
     this.reloadBtn = q('reload') as HTMLButtonElement;
-    this.reticle = q('reticle');
     this.aim = q('aim');
     this.reloadBtn.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -92,20 +90,15 @@ export class Hud {
     this.reloadBtn.classList.toggle('busy', h.reloading);
   }
 
-  /** 照準の下にある部位を、レティクルの色と名前・基本点で示す */
+  /** 照準の下にある部位を、名前と基本点で示す */
   setAim(target: Zone | 'item' | null): void {
     if (target === this.aimKey) return;
     this.aimKey = target;
     if (target === null) {
-      this.reticle.style.borderColor = '';
-      this.reticle.classList.remove('locked');
       this.aim.textContent = '';
       return;
     }
-    const color = target === 'item' ? '#ffffff' : ZONE_COLOR[target];
-    this.reticle.style.borderColor = color;
-    this.reticle.classList.add('locked');
-    this.aim.style.color = color;
+    this.aim.style.color = target === 'item' ? '#ffffff' : ZONE_COLOR[target];
     this.aim.textContent = target === 'item' ? 'アイテム' : `${ZONE_NAME_JA[target]} ${ZONE_BASE[target]}`;
   }
 
