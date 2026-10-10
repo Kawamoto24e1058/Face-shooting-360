@@ -27,6 +27,13 @@ export interface TitleOptions {
   insecure: boolean;
   /** 保存済みの顔のサムネイル（無ければ null） */
   faceThumb: HTMLCanvasElement | null;
+  pwa: {
+    needRefresh: boolean;
+    canInstall: boolean;
+    iosGuide: boolean;
+    onUpdate: () => void;
+    onInstall: () => void;
+  };
   /** 保存済みの顔が立体データを持っているか（旧データは平面） */
   face3d: boolean;
   onStart: () => void;
@@ -57,6 +64,9 @@ export function titleScreen(o: TitleOptions): HTMLElement {
     el('p', { className: 'note', textContent: '（仮タイトル）360°見回して、出てくる顔の的を撃つ90秒のスコアアタック' }),
     ...warnings,
     el('div', { className: 'warn', textContent: '⚠ 体ごと回って遊びます。周囲に人や物がないか確認してください。座って遊ぶときは「座りモード」をONにしてください。' }),
+    ...(o.pwa.needRefresh
+      ? [el('div', { className: 'warn row' }, ['新しいバージョンがあります', small(button('更新', o.pwa.onUpdate))])]
+      : []),
     faceRow(o),
     button('スタート', o.onStart),
     el('div', { className: 'settings' }, [
@@ -68,8 +78,24 @@ export function titleScreen(o: TitleOptions): HTMLElement {
       ...(o.faceThumb ? [el('div', { className: 'setting-row' }, ['顔データ（端末内）', small(button('削除', o.onDeleteFace, true))])] : []),
     ]),
     el('p', { className: 'note', textContent: `ベストスコア: ${o.bestScore.toLocaleString()}` }),
+    ...installRow(o),
     el('p', { className: 'note', textContent: 'カメラ映像・顔データは端末内だけで処理し、外部に送信しません。' }),
   ]);
+}
+
+function installRow(o: TitleOptions): HTMLElement[] {
+  if (o.pwa.canInstall) {
+    return [small(button('ホーム画面に追加', o.pwa.onInstall, true))];
+  }
+  if (o.pwa.iosGuide) {
+    return [
+      el('p', {
+        className: 'note',
+        textContent: '全画面で遊ぶには、Safari の共有ボタン →「ホーム画面に追加」から起動してください。',
+      }),
+    ];
+  }
+  return [];
 }
 
 function small(b: HTMLButtonElement): HTMLButtonElement {
@@ -109,6 +135,7 @@ export function resultScreen(o: { result: ScoreState; best: number; isBest: bool
   const rows: [string, string][] = [
     ['命中率', `${Math.round(accuracy(r) * 100)}% (${r.hits}/${r.shots})`],
     ['最大コンボ', String(r.maxCombo)],
+    ['ボス', r.bossDefeated ? '撃破！' : '—'],
     ...ZONES.map((z) => [ZONE_LABEL[z].replace('!', ''), String(r.zoneHits[z])] as [string, string]),
     ['ベストスコア', o.best.toLocaleString()],
   ];

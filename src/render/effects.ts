@@ -104,7 +104,9 @@ export class Effects {
     // 的と同じ形に重ねる（立体のお面なら表面だけに色を乗せる）
     const geo = target.geometry;
     const hidden = new THREE.MeshBasicMaterial({ visible: false });
-    const m = new THREE.Mesh(geo, geo.groups.length > 0 ? [mat, hidden] : mat);
+    const m = new THREE.Mesh(geo, geo.groups.length > 0 ? [mat, ...geo.groups.slice(1).map(() => hidden)] : mat);
+    // 表情の変形を的と共有する
+    if (target.morphTargetInfluences) m.morphTargetInfluences = target.morphTargetInfluences;
     target.add(m);
     this.add({
       obj: m,

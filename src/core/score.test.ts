@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   accuracy,
+  BOSS_BONUS,
+  defeatBoss,
   applyShot,
   breakCombo,
   comboMultiplier,
@@ -90,5 +92,14 @@ describe('applyShot', () => {
     s = breakCombo(s);
     expect(s.combo).toBe(0);
     expect(s.score).toBe(500);
+  });
+});
+
+describe('defeatBoss', () => {
+  it('adds the bonus only once', () => {
+    let s = defeatBoss(initialScoreState());
+    s = defeatBoss(s);
+    expect(s.score).toBe(BOSS_BONUS);
+    expect(s.bossDefeated).toBe(true);
   });
 });

@@ -17,10 +17,15 @@ export function startFacePreview(canvas: HTMLCanvasElement, cutout: Cutout): () 
   scene.add(key);
 
   const skin = createFaceSkin(cutout.texture, cutout.mask, cutout.landmarks);
-  const mats = skin.geometry
-    ? [new THREE.MeshLambertMaterial({ map: skin.texture }), new THREE.MeshLambertMaterial({ color: 0xf3e7da })]
+  const mats: THREE.Material[] = skin.geometry
+    ? [
+        new THREE.MeshLambertMaterial({ map: skin.texture }),
+        new THREE.MeshLambertMaterial({ color: 0xf3e7da }),
+        new THREE.MeshLambertMaterial({ color: 0x3a0d18 }),
+      ]
     : [new THREE.MeshBasicMaterial({ map: skin.texture, transparent: true })];
   const mesh = new THREE.Mesh(skin.geometry ?? new THREE.PlaneGeometry(1, 1), skin.geometry ? mats : mats[0]);
+  const infl = mesh.morphTargetInfluences;
   scene.add(mesh);
 
   let raf = 0;
@@ -29,6 +34,15 @@ export function startFacePreview(canvas: HTMLCanvasElement, cutout: Cutout): () 
     const s = (t - t0) / 1000;
     mesh.rotation.y = Math.sin(s * 0.9) * 0.75;
     mesh.rotation.x = Math.sin(s * 0.6) * 0.12;
+    // 表情を順番に見せる（1つあたり1.6秒、前後0.3秒で補間）
+    if (infl) {
+      const slot = s / 1.6;
+      const cur = Math.floor(slot) % (infl.length + 1);
+      const f = slot % 1;
+      const w = Math.min(1, f / 0.2, (1 - f) / 0.2);
+      infl.fill(0);
+      if (cur > 0) infl[cur - 1] = w;
+    }
     renderer.render(scene, camera);
     raf = requestAnimationFrame(loop);
   };

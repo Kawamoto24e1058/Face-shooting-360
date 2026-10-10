@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundaryLoops, buildFaceMesh, type Landmark3 } from './mesh';
+import { boundaryLoops, buildFaceMesh, morphIndex, type Landmark3 } from './mesh';
 import { FACE_TRIANGLES } from './tesselation';
 
 /** 球面の一部に 468 点を並べた合成ランドマーク（中央ほど手前＝z が小さい） */
@@ -27,7 +27,8 @@ describe('buildFaceMesh', () => {
     const front = m.groups[0].count / 3;
     expect(front).toBe(852 + 16 + 16 + 20);
     expect(m.groups[1].count / 3).toBe(36 * 3);
-    expect(m.indices.length).toBe(m.groups[0].count + m.groups[1].count);
+    expect(m.groups[2].count / 3).toBe(20);
+    expect(m.indices.length).toBe(m.groups[0].count + m.groups[1].count + m.groups[2].count);
     expect(Math.max(...m.indices)).toBeLessThan(m.positions.length / 3);
   });
   it('keeps the surface within the unit square and the back behind it', () => {
@@ -46,5 +47,28 @@ describe('buildFaceMesh', () => {
     const lm = synth();
     expect(m.uvs[0]).toBeCloseTo(lm[0].x);
     expect(m.uvs[1]).toBeCloseTo(1 - lm[0].y);
+  });
+});
+
+/** 実際の顔に近い配置の合成ランドマーク（必要な点だけ意味のある位置に置く） */
+describe('expressions', () => {
+  const m = buildFaceMesh(synth());
+  const dy = (e: Parameters<typeof morphIndex>[0], v: number) => m.morphs[morphIndex(e)][v * 3 + 1];
+  it('has one morph per non-neutral expression covering every vertex', () => {
+    expect(m.morphs).toHaveLength(5);
+    for (const a of m.morphs) expect(a.length).toBe(m.positions.length);
+  });
+  it('closing the eyes moves the upper lid toward the lower lid', () => {
+    const up = 159, low = 145;
+    const dir = Math.sign(m.positions[low * 3 + 1] - m.positions[up * 3 + 1]);
+    expect(Math.sign(dy('eyesClosed', up))).toBe(dir);
+    expect(dy('eyesClosed', low)).toBe(0);
+  });
+  it('morphs stay small so the face does not break apart', () => {
+    for (const a of m.morphs) {
+      let max = 0;
+      for (let i = 0; i < a.length; i++) max = Math.max(max, Math.abs(a[i]));
+      expect(max).toBeLessThan(0.15);
+    }
   });
 });

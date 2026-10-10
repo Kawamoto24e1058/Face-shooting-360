@@ -106,6 +106,7 @@ export interface ScoreState {
   shots: number;
   hits: number;
   zoneHits: Record<Zone, number>;
+  bossDefeated: boolean;
 }
 
 export function initialScoreState(): ScoreState {
@@ -118,6 +119,7 @@ export function initialScoreState(): ScoreState {
     shots: 0,
     hits: 0,
     zoneHits: { forehead: 0, eye: 0, nose: 0, mouth: 0, cheek: 0, chin: 0 },
+    bossDefeated: false,
   };
 }
 
@@ -163,6 +165,14 @@ export function applyShot(
     next.score += p;
   }
   return { state: next, points };
+}
+
+export const BOSS_BONUS = 5000;
+
+/** ボス撃破のボーナス（コンボ等の倍率はかけない） */
+export function defeatBoss(state: ScoreState): ScoreState {
+  if (state.bossDefeated) return state;
+  return { ...state, score: state.score + BOSS_BONUS, bossDefeated: true };
 }
 
 /** リロード開始でコンボを切る */

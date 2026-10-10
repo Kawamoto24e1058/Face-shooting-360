@@ -29,6 +29,8 @@ export class Hud {
   private readonly reloadBtn: HTMLButtonElement;
   private readonly aim: HTMLElement;
   private aimKey: string | null = null;
+  private readonly bossBar: HTMLElement;
+  private readonly bossFill: HTMLElement;
   private readonly overlay: HTMLCanvasElement;
   private readonly octx: CanvasRenderingContext2D;
   private readonly ink: HTMLElement;
@@ -39,6 +41,7 @@ export class Hud {
     this.el = root;
     root.innerHTML = `
       <div class="hud-top"><span data-k="time"></span><span data-k="score"></span></div>
+      <div class="boss-bar" data-k="boss" hidden><span>BOSS</span><i><b data-k="bossfill"></b></i></div>
       <div class="combo" data-k="combo"></div>
       <div class="combo" data-k="banner" style="top:40%;font-size:28px;color:#fff"></div>
       <div class="reticle"></div>
@@ -56,6 +59,8 @@ export class Hud {
     this.banner = q('banner');
     this.reloadBtn = q('reload') as HTMLButtonElement;
     this.aim = q('aim');
+    this.bossBar = q('boss');
+    this.bossFill = q('bossfill');
     this.reloadBtn.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       onReload();
@@ -90,6 +95,12 @@ export class Hud {
     this.reloadBtn.classList.toggle('busy', h.reloading);
   }
 
+  /** ボスの体力（0〜1）。null で非表示 */
+  setBoss(ratio: number | null): void {
+    this.bossBar.hidden = ratio === null;
+    if (ratio !== null) this.bossFill.style.width = `${Math.max(0, ratio) * 100}%`;
+  }
+
   /** 照準の下にある部位を、名前と基本点で示す */
   setAim(target: Zone | 'item' | null): void {
     if (target === this.aimKey) return;
@@ -110,7 +121,7 @@ export class Hud {
   }
 
   /** 命中位置に部位ラベルと得点を出す */
-  popup(camera: THREE.Camera, world: THREE.Vector3, zone: Zone, points: number): void {
+  popup(camera: THREE.Camera, world: THREE.Vector3, zone: Zone, points: number, label?: string): void {
     v.copy(world).project(camera);
     if (v.z > 1) return;
     const d = document.createElement('div');
@@ -119,7 +130,7 @@ export class Hud {
     // 照準と重ならないよう少し上に出す
     d.style.top = `${((1 - v.y) / 2) * window.innerHeight - 56}px`;
     d.style.color = ZONE_COLOR[zone];
-    d.innerHTML = `${ZONE_LABEL[zone]}<small>${ZONE_NAME_JA[zone]} +${points}</small>`;
+    d.innerHTML = `${label ?? ZONE_LABEL[zone]}<small>${label ? '' : ZONE_NAME_JA[zone]} +${points}</small>`;
     this.el.appendChild(d);
     window.setTimeout(() => d.remove(), 800);
   }
@@ -175,7 +186,8 @@ export class Hud {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(ang);
-      ctx.fillStyle = t.rare ? '#ffe14f' : '#ff4fa3';
+      ctx.fillStyle = t.boss ? '#ffffff' : t.rare ? '#ffe14f' : '#ff4fa3';
+      if (t.boss) ctx.scale(1.8, 1.8);
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.lineWidth = 2;
       ctx.beginPath();

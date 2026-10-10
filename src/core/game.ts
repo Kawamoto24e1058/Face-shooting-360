@@ -1,9 +1,20 @@
 import * as THREE from 'three';
-import { applyShot, breakCombo, initialScoreState, ZONE_COLOR, type ScoreState, type ShotHit, type Zone } from './score';
-import { pickSpawnPoint, waveConfig } from './spawner';
+import {
+  applyShot,
+  BOSS_BONUS,
+  breakCombo,
+  defeatBoss,
+  initialScoreState,
+  ZONE_COLOR,
+  type ScoreState,
+  type ShotHit,
+  type Zone,
+} from './score';
+import { pickSpawnPoint, SPAWN_PARAMS, waveConfig } from './spawner';
+import { pickExpression } from './expressions';
 import { castRay, type RayHit } from './hitscan';
 import { Weapon, WEAPON_PARAMS } from './weapon';
-import { Target, type FaceSkin } from '../render/target';
+import { BOSS_PARAMS, Target, type FaceSkin } from '../render/target';
 import { Item } from '../render/item';
 import type { Effects } from '../render/effects';
 import type { SceneView } from '../render/scene';
@@ -34,6 +45,7 @@ export class Game {
   private spawnTimer = 0;
   private wave = -1;
   private finalAnnounced = false;
+  private boss: Target | null = null;
   private finished = false;
   private wasReloading = false;
   private readonly rng = Math.random;
@@ -74,13 +86,15 @@ export class Game {
     }
     if (cfg.final && !this.finalAnnounced) {
       this.finalAnnounced = true;
-      // ボス顔は段階4で実装する
-      this.hud.showBanner('FINAL WAVE!', 2);
+      this.hud.showBanner('BOSS 出現！ 裏の弱点を狙え', 2.5);
+      this.spawnBoss();
     }
 
     this.spawnTimer -= dt;
-    const aliveCount = this.targets.filter((t) => t.alive).length;
-    if (aliveCount < cfg.maxConcurrent && this.spawnTimer <= 0) {
+    const aliveCount = this.targets.filter((t) => t.alive && !t.boss).length;
+    // ボスがいる間は他の的を減らす
+    const max = this.boss?.alive ? Math.ceil(cfg.maxConcurrent / 2) : cfg.maxConcurrent;
+    if (aliveCount < max && this.spawnTimer <= 0) {
       this.spawn(cfg.movingRatio, cfg.speed);
       this.spawnTimer = cfg.spawnIntervalSec * (0.6 + this.rng() * 0.8);
     }
@@ -175,7 +189,8 @@ export class Game {
         continue;
       }
       targetHits.push(h);
-      shotHits.push({ zone: h.zone, distanceT: h.target.distanceT, moving: h.target.moving });
+      // ボスの弱点に当てたときは「動いている的」扱いにしない（回転しているだけなので）
+      shotHits.push({ zone: h.zone, distanceT: h.target.distanceT, moving: h.target.moving && !h.target.boss });
     }
 
     if (shotHits.length === 0 && itemHit) {
@@ -208,27 +223,51 @@ export class Game {
   }
 
   private onTargetHit(h: Extract<RayHit, { kind: 'target' }>, points: number): void {
-    const wasAlive = h.target.alive;
-    h.target.hit();
+    const t = h.target;
+    const wasAlive = t.alive;
+    const defeated = t.damage(h.weak ? BOSS_PARAMS.weakDamage : 1);
     const hl = h.target.skin.highlights?.[h.zone];
     if (hl) this.effects.zoneFlash(h.target.mesh, hl, ZONE_COLOR[h.zone]);
     this.effects.splash(h.target.mesh, h.point, h.normal);
     this.effects.shockwave(h.point, this.view.camera.position);
-    this.hud.popup(this.view.camera, h.point, h.zone, points);
+    this.hud.popup(this.view.camera, h.point, h.zone, points, h.weak ? 'WEAK!' : undefined);
     this.hud.inkFlash();
     this.sfx.hit(h.zone);
     navigator.vibrate?.(30);
-    if (wasAlive && (h.target.rare || this.rng() < ITEM_DROP_CHANCE)) {
-      const item = new Item(this.rng() < 0.5 ? 'pierce' : 'spread', h.target.position);
+    if (t.boss) {
+      this.hud.setBoss(t.hp / t.maxHp);
+      if (defeated) {
+        this.score = defeatBoss(this.score);
+        this.hud.showBanner(`BOSS DOWN! +${BOSS_BONUS}`, 2.5);
+        this.sfx.powerup();
+      }
+      return;
+    }
+    // 口開けの的は、口に当てると必ずアイテムを出す
+    const mouthBonus = t.personality.mouthBonus && h.zone === 'mouth';
+    if (wasAlive && defeated && (t.rare || mouthBonus || this.rng() < ITEM_DROP_CHANCE)) {
+      const item = new Item(this.rng() < 0.5 ? 'pierce' : 'spread', t.position);
       this.items.push(item);
       this.view.scene.add(item.mesh);
     }
   }
 
+  private spawnBoss(): void {
+    const skin = this.skins[0];
+    const half = this.settings.seated ? SPAWN_PARAMS.seatedAzimuthHalf : Math.PI;
+    const p = { azimuth: (this.rng() * 2 - 1) * half, elevation: 0.08, distance: BOSS_PARAMS.distance, rare: false };
+    this.boss = new Target(skin, p, { moving: true, speed: 0, rng: this.rng, boss: true });
+    this.targets.push(this.boss);
+    this.view.scene.add(this.boss.mesh);
+    this.hud.setBoss(1);
+    this.sfx.spawnAt(this.boss.position);
+  }
+
   private spawn(movingRatio: number, speed: number): void {
     const p = pickSpawnPoint(this.rng, this.settings.seated);
     const skin = this.skins[Math.floor(this.rng() * this.skins.length)];
-    const t = new Target(skin, p, { moving: this.rng() < movingRatio, speed, rng: this.rng });
+    const expression = pickExpression(this.rng, Math.max(0, this.wave), skin.photoExpression);
+    const t = new Target(skin, p, { moving: this.rng() < movingRatio, speed, rng: this.rng, expression });
     this.targets.push(t);
     this.view.scene.add(t.mesh);
     this.sfx.spawnAt(t.position);
@@ -236,6 +275,7 @@ export class Game {
 
   private finish(): void {
     this.finished = true;
+    this.hud.setBoss(null);
     this.onEnd(this.score);
   }
 }

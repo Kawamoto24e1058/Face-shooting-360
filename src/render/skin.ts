@@ -33,6 +33,9 @@ function faceGeometry(lm: readonly Landmark3[]): THREE.BufferGeometry {
   g.setAttribute('uv', new THREE.BufferAttribute(m.uvs, 2));
   g.setIndex(new THREE.BufferAttribute(m.indices, 1));
   for (const gr of m.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+  // 表情はモーフターゲット（基準形からの差分）として持ち、プレイ中は重みを補間するだけにする
+  g.morphAttributes.position = m.morphs.map((d) => new THREE.BufferAttribute(d, 3));
+  g.morphTargetsRelative = true;
   g.computeVertexNormals();
   g.computeBoundingSphere();
   return g;

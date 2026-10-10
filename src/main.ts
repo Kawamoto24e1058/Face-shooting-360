@@ -1,5 +1,4 @@
 import './style.css';
-import { registerSW } from 'virtual:pwa-register';
 import { OrientationController, requestOrientationPermission } from './core/orientation';
 import { CameraFeed } from './core/camera';
 import { Game } from './core/game';
@@ -10,13 +9,19 @@ import { Sfx } from './audio/sfx';
 import { Hud } from './ui/hud';
 import { createDummyFace } from './face/dummyFace';
 import { createFaceSkin, disposeFaceSkin } from './render/skin';
+import { photoExpressionFrom } from './core/expressions';
 import { store, submitResult, updateSettings } from './state/store';
 import { calibrateScreen, countdownScreen, resultScreen, titleScreen } from './screens/screens';
 import { captureScreen, type CaptureDone } from './screens/capture';
 import { blobToCanvas, canvasToBlob, deleteFace, loadFace, saveFace, type StoredFace } from './face/store';
 import { isInAppBrowser, isSecure, ScreenWakeLock } from './util/env';
+import { pwa } from './util/pwa';
 
-registerSW({ immediate: true });
+pwa.init();
+// 更新やインストール可否が変わったら、タイトル画面を表示し直す
+pwa.onChange(() => {
+  if (store.getState().phase === 'title' && !screenRoot.querySelector('.panel input[type=file]')) goTitle();
+});
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const screenRoot = $('screen');
@@ -41,9 +46,15 @@ let useSample = false;
 
 const skinFrom = createFaceSkin;
 
-function setFace(texture: HTMLCanvasElement, mask: HTMLCanvasElement, landmarks?: StoredFace['landmarks']): void {
+function setFace(
+  texture: HTMLCanvasElement,
+  mask: HTMLCanvasElement,
+  landmarks?: StoredFace['landmarks'],
+  blendshapes?: StoredFace['blendshapes'],
+): void {
   if (faceSkin) disposeFaceSkin(faceSkin);
   faceSkin = skinFrom(texture, mask, landmarks);
+  faceSkin.photoExpression = photoExpressionFrom(blendshapes);
   const thumb = document.createElement('canvas');
   thumb.width = thumb.height = 192;
   thumb.getContext('2d')!.drawImage(texture, 0, 0, 192, 192);
@@ -60,7 +71,7 @@ async function restoreFace(): Promise<void> {
   const f = await loadFace();
   if (!f) return;
   try {
-    setFace(await blobToCanvas(f.texture), await blobToCanvas(f.mask), f.landmarks);
+    setFace(await blobToCanvas(f.texture), await blobToCanvas(f.mask), f.landmarks, f.blendshapes);
   } catch {
     clearFace();
   }
@@ -115,6 +126,13 @@ function goTitle(): void {
       inAppBrowser: isInAppBrowser(),
       insecure: !isSecure(),
       faceThumb,
+      pwa: {
+        needRefresh: pwa.needRefresh,
+        canInstall: pwa.canPrompt,
+        iosGuide: pwa.needsIosGuide,
+        onUpdate: () => void pwa.update(),
+        onInstall: () => void pwa.install(),
+      },
       face3d: !!faceSkin?.geometry,
       onStart: () => {
         if (faceSkin) {
@@ -143,7 +161,7 @@ function goCapture(): void {
     captureScreen({
       onConfirm: (d) => {
         // センサー許可はこのタップ内で取る必要があるので、保存より先に start() を呼ぶ
-        setFace(d.cutout.texture, d.cutout.mask, d.cutout.landmarks);
+        setFace(d.cutout.texture, d.cutout.mask, d.cutout.landmarks, d.blendshapes);
         useSample = false;
         void start();
         void persistFace(d);
@@ -278,6 +296,16 @@ if (import.meta.env.DEV) {
     if (!t) return false;
     orientation.setDragAngles(t.azimuth + du, t.elevation + dv);
     return true;
+  };
+  // ボスに照準を合わせる / 時間を進める
+  (window as unknown as Record<string, unknown>).__debugAimBoss = (du = 0, dv = 0) => {
+    const t = game?.activeTargets.find((x) => x.boss);
+    if (!t) return false;
+    orientation.setDragAngles(t.azimuth + du, t.elevation + dv);
+    return true;
+  };
+  (window as unknown as Record<string, unknown>).__debugSkip = (sec: number) => {
+    if (game) game.elapsed += sec;
   };
 }
 

@@ -66,7 +66,7 @@ html, body {
   border-radius: 50%; width: 76px; height: 76px; font-weight: 800; font-size: 14px;
 }
 .reload-btn.busy { opacity: 0.5; }
-.combo { position: absolute; top: 56px; width: 100%; text-align: center; font-weight: 900; font-size: 22px; color: #ffe14f; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
+.combo { position: absolute; top: 64px; width: 100%; text-align: center; font-weight: 900; font-size: 22px; color: #ffe14f; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
 .reticle {
   position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px;
   border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
@@ -102,3 +102,11 @@ html, body {
 .face-thumb { width: 96px; height: 96px; border-radius: 50%; background: #2a2a3a; object-fit: contain; }
 .row { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; }
 .btn.small { min-width: 0; padding: 8px 16px; font-size: 14px; }
+
+.boss-bar {
+  position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 32px); left: 20%; right: 20%;
+  display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 13px; text-shadow: 0 1px 4px #000;
+}
+.boss-bar[hidden] { display: none; }
+.boss-bar i { flex: 1; height: 10px; border-radius: 5px; background: rgba(0,0,0,0.5); overflow: hidden; border: 1px solid rgba(255,255,255,0.6); }
+.boss-bar b { display: block; height: 100%; width: 100%; background: var(--accent); transition: width 0.15s; }
