@@ -93,7 +93,8 @@ html, body {
 
 /* 顔の取り込み */
 .face-preview { position: relative; width: min(240px, 60vw); aspect-ratio: 1; }
-.face-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.face-preview canvas, .face-flat { position: absolute; inset: 0; width: 100%; height: 100%; }
+.face-preview [hidden] { display: none; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 15px; text-align: left; max-width: 30em; }
 .check input { width: 22px; height: 22px; flex: none; }
 .check.consent { font-weight: 700; }

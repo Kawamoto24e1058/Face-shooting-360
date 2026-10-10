@@ -4,13 +4,20 @@ import type { ZoneMask } from '../face/zoneMask';
 import type { Zone } from '../core/score';
 
 const DEG = Math.PI / 180;
-const geometry = new THREE.PlaneGeometry(1, 1);
+const planeGeometry = new THREE.PlaneGeometry(1, 1);
+/** お面の側面・裏の色 */
+const SHELL_COLOR = 0xf3e7da;
+/** 立体の顔を見せるための首振り */
+const SWAY_YAW = 28 * DEG;
+const SWAY_PITCH = 8 * DEG;
 
 export interface FaceSkin {
   texture: THREE.Texture;
   mask: ZoneMask;
   /** 部位ごとの白塗り画像（命中時に光らせる） */
   highlights?: Partial<Record<Zone, THREE.Texture>>;
+  /** 立体のお面メッシュ（グループ0: 表面, 1: 側面・裏）。無ければ板で表示 */
+  geometry?: THREE.BufferGeometry;
 }
 
 export type TargetState = 'enter' | 'alive' | 'hit' | 'leave' | 'dead';
@@ -20,7 +27,7 @@ const LEAVE_SEC = 0.35;
 const HIT_HOLD_SEC = 0.45;
 
 export class Target {
-  readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>;
   readonly mask: ZoneMask;
   readonly skin: FaceSkin;
   state: TargetState = 'enter';
@@ -37,6 +44,8 @@ export class Target {
   private age = 0;
   private stateAge = 0;
   private readonly lifeSec: number;
+  private readonly swayPhase: number;
+  private readonly swayFreq: number;
 
   constructor(skin: FaceSkin, p: SpawnPoint, opts: { moving: boolean; speed: number; rng: () => number }) {
     const { rng } = opts;
@@ -53,10 +62,17 @@ export class Target {
     // 遠くても見えるよう、距離に応じて少し大きくする
     this.size = (p.rare ? 1.0 : 1.35) * (0.7 + 0.3 * (p.distance / SPAWN_PARAMS.distanceMin));
     this.lifeSec = 6 + rng() * 4;
-    this.mesh = new THREE.Mesh(
-      geometry,
-      new THREE.MeshBasicMaterial({ map: skin.texture, transparent: true, alphaTest: 0.05, side: THREE.FrontSide }),
-    );
+    this.swayPhase = rng() * Math.PI * 2;
+    this.swayFreq = 0.3 + rng() * 0.3;
+    this.mesh = skin.geometry
+      ? new THREE.Mesh(skin.geometry, [
+          new THREE.MeshLambertMaterial({ map: skin.texture }),
+          new THREE.MeshLambertMaterial({ color: SHELL_COLOR }),
+        ])
+      : new THREE.Mesh(
+          planeGeometry,
+          new THREE.MeshBasicMaterial({ map: skin.texture, transparent: true, alphaTest: 0.05, side: THREE.FrontSide }),
+        );
     this.mesh.userData.target = this;
     this.mesh.scale.setScalar(0.001);
     this.place();
@@ -120,7 +136,8 @@ export class Target {
 
   dispose(): void {
     this.mesh.removeFromParent();
-    this.mesh.material.dispose();
+    const mats = this.mesh.material;
+    (Array.isArray(mats) ? mats : [mats]).forEach((m) => m.dispose());
   }
 
   private setState(s: TargetState) {
@@ -133,6 +150,12 @@ export class Target {
     this.mesh.position.set(x, y, z);
     // 原点（プレイヤー）に正面を向ける
     this.mesh.lookAt(0, 0, 0);
+    if (this.skin.geometry) {
+      // 少し首を振らせて、立体であることが分かるようにする
+      const t = this.age * this.swayFreq * Math.PI * 2 + this.swayPhase;
+      this.mesh.rotateY(Math.sin(t) * SWAY_YAW);
+      this.mesh.rotateX(Math.sin(t * 0.7) * SWAY_PITCH);
+    }
   }
 }
 

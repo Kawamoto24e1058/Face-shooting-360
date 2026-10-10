@@ -1,4 +1,5 @@
 import { zoneColor } from './zoneMask';
+import type { Landmark3 } from './mesh';
 import {
   applyAlignment,
   BROW_LOWER,
@@ -25,8 +26,8 @@ export interface Cutout {
   texture: HTMLCanvasElement;
   /** 部位マスク（R に部位ID） */
   mask: HTMLCanvasElement;
-  /** テクスチャ座標（0〜1）に変換したランドマーク。段階4のメッシュワープで使う */
-  landmarks: Pt[];
+  /** テクスチャ座標（0〜1）に変換したランドマーク。z は x と同じ尺度の奥行き（小さいほど手前） */
+  landmarks: Landmark3[];
   /** 顔領域の平均輝度（0〜255） */
   brightness: number;
 }
@@ -47,7 +48,11 @@ function polygon(ctx: CanvasRenderingContext2D, pts: readonly Pt[]): void {
  * 元画像とランドマーク（元画像のピクセル座標）から、切り抜きテクスチャとゾーンマスクを作る。
  * 端末内の Canvas だけで処理し、外部には送らない。
  */
-export function makeCutout(source: CanvasImageSource, landmarksPx: readonly Pt[], size = FACE_TEXTURE_SIZE): Cutout {
+export function makeCutout(
+  source: CanvasImageSource,
+  landmarksPx: readonly (Pt & { z?: number })[],
+  size = FACE_TEXTURE_SIZE,
+): Cutout {
   const a = computeAlignment(landmarksPx, size);
   const lm = landmarksPx.map((p) => mapPoint(a, p));
   const oval = pick(lm, FACE_OVAL);
@@ -108,7 +113,7 @@ export function makeCutout(source: CanvasImageSource, landmarksPx: readonly Pt[]
   return {
     texture: tex,
     mask,
-    landmarks: lm.map((p) => ({ x: p.x / size, y: p.y / size })),
+    landmarks: lm.map((p, i) => ({ x: p.x / size, y: p.y / size, z: ((landmarksPx[i].z ?? 0) * a.scale) / size })),
     brightness: meanBrightness(t, size),
   };
 }

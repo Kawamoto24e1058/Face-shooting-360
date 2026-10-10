@@ -1,6 +1,7 @@
 import { CAPTURE_ERROR_MESSAGE, captureFace, loadImage, releaseLandmarker } from '../face/detect';
 import type { Cutout } from '../face/cutout';
 import { colorizeMask } from '../face/zoneMask';
+import { startFacePreview } from '../render/facePreview';
 
 export interface CaptureDone {
   cutout: Cutout;
@@ -18,6 +19,11 @@ export interface CaptureOptions {
 export function captureScreen(o: CaptureOptions): HTMLElement {
   const root = document.createElement('div');
   root.className = 'panel';
+  let stopPreview: (() => void) | null = null;
+  const stop = () => {
+    stopPreview?.();
+    stopPreview = null;
+  };
 
   const fileInput = (capture: boolean) => {
     const i = document.createElement('input');
@@ -45,6 +51,7 @@ export function captureScreen(o: CaptureOptions): HTMLElement {
   };
 
   function renderSelect(message?: string) {
+    stop();
     root.replaceChildren(
       h('h2', '顔の取り込み'),
       h('p', '正面を向いた、自分の顔だけが写った明るい写真を使います。'),
@@ -52,8 +59,8 @@ export function captureScreen(o: CaptureOptions): HTMLElement {
       btn('カメラで撮影', () => shoot.click()),
       btn('写真を選ぶ', () => pick.click(), 'btn secondary'),
       h('p', '写真の解析・切り抜き・保存はすべてこの端末の中で行い、外部には送信しません。', 'note'),
-      btn('サンプルの顔で遊ぶ', o.onSkip, 'btn secondary'),
-      btn('戻る', o.onBack, 'link'),
+      btn('サンプルの顔で遊ぶ', () => (stop(), o.onSkip()), 'btn secondary'),
+      btn('戻る', () => (stop(), o.onBack()), 'link'),
       shoot,
       pick,
     );
@@ -66,21 +73,28 @@ export function captureScreen(o: CaptureOptions): HTMLElement {
   function renderPreview(done: CaptureDone) {
     const preview = document.createElement('div');
     preview.className = 'face-preview';
+    // 立体プレビュー（判定エリア表示中は平面の画像に切り替える）
+    const view3d = document.createElement('canvas');
+    const flat = document.createElement('div');
+    flat.className = 'face-flat';
+    flat.hidden = true;
     const tex = done.cutout.texture;
-    tex.className = 'face-img';
     const mask = colorizeMask(done.cutout.mask);
-    mask.className = 'face-mask';
-    mask.hidden = true;
-    preview.append(tex, mask);
+    flat.append(tex, mask);
+    preview.append(view3d, flat);
 
     const showZones = document.createElement('input');
     showZones.type = 'checkbox';
-    showZones.addEventListener('change', () => (mask.hidden = !showZones.checked));
+    showZones.addEventListener('change', () => {
+      flat.hidden = !showZones.checked;
+      view3d.hidden = showZones.checked;
+    });
 
     const consent = document.createElement('input');
     consent.type = 'checkbox';
     const go = btn('この顔で遊ぶ', () => {
       if (!consent.checked) return;
+      stop();
       void releaseLandmarker();
       o.onConfirm(done);
     });
@@ -95,6 +109,13 @@ export function captureScreen(o: CaptureOptions): HTMLElement {
       go,
       btn('撮り直す', () => renderSelect(), 'btn secondary'),
     );
+    try {
+      stopPreview = startFacePreview(view3d, done.cutout);
+    } catch {
+      // WebGL が使えない場合は平面の画像だけ見せる
+      flat.hidden = false;
+      view3d.hidden = true;
+    }
   }
 
   async function process(file: File) {

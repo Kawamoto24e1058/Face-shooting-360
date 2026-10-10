@@ -4,7 +4,7 @@ import { Target } from '../render/target';
 import { Item } from '../render/item';
 
 export type RayHit =
-  | { kind: 'target'; target: Target; zone: Zone; point: THREE.Vector3 }
+  | { kind: 'target'; target: Target; zone: Zone; point: THREE.Vector3; normal: THREE.Vector3 }
   | { kind: 'item'; item: Item; point: THREE.Vector3 };
 
 const raycaster = new THREE.Raycaster();
@@ -43,9 +43,14 @@ export function castRay(
     }
     const target = it.object.userData.target as Target | undefined;
     if (!target || !target.alive || !it.uv) continue;
+    // お面の側面・裏（グループ1）は部位なし＝すり抜け
+    if (it.face?.materialIndex === 1) continue;
     const zone = target.mask.sample(it.uv.x, it.uv.y);
     if (zone === 'none') continue;
-    out.push({ kind: 'target', target, zone, point: it.point.clone() });
+    const normal = it.face
+      ? it.face.normal.clone().transformDirection(it.object.matrixWorld)
+      : raycaster.ray.direction.clone().negate();
+    out.push({ kind: 'target', target, zone, point: it.point.clone(), normal });
     if (!pierce) break;
   }
   return out;

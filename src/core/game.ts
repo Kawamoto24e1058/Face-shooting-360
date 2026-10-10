@@ -212,7 +212,7 @@ export class Game {
     h.target.hit();
     const hl = h.target.skin.highlights?.[h.zone];
     if (hl) this.effects.zoneFlash(h.target.mesh, hl, ZONE_COLOR[h.zone]);
-    this.effects.splash(h.target.mesh, h.point);
+    this.effects.splash(h.target.mesh, h.point, h.normal);
     this.effects.shockwave(h.point, this.view.camera.position);
     this.hud.popup(this.view.camera, h.point, h.zone, points);
     this.hud.inkFlash();

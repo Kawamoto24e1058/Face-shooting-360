@@ -10,6 +10,7 @@
 | [zustand](https://github.com/pmndrs/zustand) | MIT | 状態管理 |
 | [vite-plugin-pwa](https://github.com/vite-pwa/vite-plugin-pwa) | MIT | PWA化 |
 | [@mediapipe/tasks-vision](https://github.com/google-ai-edge/mediapipe) | Apache-2.0 | 顔検出（WASM） |
+| 顔メッシュの三角形（`src/face/tesselation.ts`） | Apache-2.0 | `@mediapipe/tasks-vision` の FACE_LANDMARKS_TESSELATION から生成 |
 | [Face Landmarker モデル](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker) | Apache-2.0 | 顔ランドマーク（`face_landmarker.task`、ビルド時に取得して同梱） |
 
 ## 画像・音・フォント

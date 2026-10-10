@@ -72,7 +72,12 @@ export async function captureFace(image: HTMLCanvasElement): Promise<CaptureResu
   const res = lmk.detect(image);
   if (res.faceLandmarks.length === 0) return { ok: false, error: 'noFace' };
   if (res.faceLandmarks.length > 1) return { ok: false, error: 'multipleFaces' };
-  const px: Pt[] = res.faceLandmarks[0].map((p) => ({ x: p.x * image.width, y: p.y * image.height }));
+  // z は x と同じく画像の幅で正規化されている
+  const px: (Pt & { z: number })[] = res.faceLandmarks[0].map((p) => ({
+    x: p.x * image.width,
+    y: p.y * image.height,
+    z: p.z * image.width,
+  }));
   const issue = checkPose(px);
   if (issue) return { ok: false, error: issue };
   const cutout = makeCutout(image, px);

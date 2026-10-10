@@ -27,6 +27,8 @@ export interface TitleOptions {
   insecure: boolean;
   /** 保存済みの顔のサムネイル（無ければ null） */
   faceThumb: HTMLCanvasElement | null;
+  /** 保存済みの顔が立体データを持っているか（旧データは平面） */
+  face3d: boolean;
   onStart: () => void;
   onRecapture: () => void;
   onDeleteFace: () => void;
@@ -80,7 +82,9 @@ function faceRow(o: TitleOptions): HTMLElement {
     return el('p', { className: 'note', textContent: 'スタートすると、最初に自分の顔写真を1枚取り込みます。' });
   }
   o.faceThumb.className = 'face-thumb';
-  return el('div', { className: 'row' }, [o.faceThumb, small(button('顔を撮り直す', o.onRecapture, true))]);
+  const row = el('div', { className: 'row' }, [o.faceThumb, small(button('顔を撮り直す', o.onRecapture, true))]);
+  if (o.face3d) return row;
+  return el('div', {}, [row, el('p', { className: 'note', textContent: '撮り直すと、顔が立体になります。' })]);
 }
 
 export function calibrateScreen(o: { sensor: boolean; camera: boolean; onReady: () => void }): HTMLElement {

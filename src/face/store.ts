@@ -1,4 +1,5 @@
 import type { Pt } from './geometry';
+import type { Landmark3 } from './mesh';
 
 /** 顔データの保存先。端末内（IndexedDB）のみで、サーバーには送らない */
 
@@ -9,8 +10,8 @@ const KEY = 'self';
 export interface StoredFace {
   texture: Blob;
   mask: Blob;
-  /** テクスチャ座標（0〜1）のランドマーク */
-  landmarks: Pt[];
+  /** テクスチャ座標（0〜1）のランドマーク。初期の保存データには z が無い（その場合は板で表示） */
+  landmarks: (Pt | Landmark3)[];
   blendshapes: Record<string, number>;
   createdAt: number;
 }

@@ -13,7 +13,7 @@ import { createFaceSkin, disposeFaceSkin } from './render/skin';
 import { store, submitResult, updateSettings } from './state/store';
 import { calibrateScreen, countdownScreen, resultScreen, titleScreen } from './screens/screens';
 import { captureScreen, type CaptureDone } from './screens/capture';
-import { blobToCanvas, canvasToBlob, deleteFace, loadFace, saveFace } from './face/store';
+import { blobToCanvas, canvasToBlob, deleteFace, loadFace, saveFace, type StoredFace } from './face/store';
 import { isInAppBrowser, isSecure, ScreenWakeLock } from './util/env';
 
 registerSW({ immediate: true });
@@ -41,9 +41,9 @@ let useSample = false;
 
 const skinFrom = createFaceSkin;
 
-function setFace(texture: HTMLCanvasElement, mask: HTMLCanvasElement): void {
+function setFace(texture: HTMLCanvasElement, mask: HTMLCanvasElement, landmarks?: StoredFace['landmarks']): void {
   if (faceSkin) disposeFaceSkin(faceSkin);
-  faceSkin = skinFrom(texture, mask);
+  faceSkin = skinFrom(texture, mask, landmarks);
   const thumb = document.createElement('canvas');
   thumb.width = thumb.height = 192;
   thumb.getContext('2d')!.drawImage(texture, 0, 0, 192, 192);
@@ -60,7 +60,7 @@ async function restoreFace(): Promise<void> {
   const f = await loadFace();
   if (!f) return;
   try {
-    setFace(await blobToCanvas(f.texture), await blobToCanvas(f.mask));
+    setFace(await blobToCanvas(f.texture), await blobToCanvas(f.mask), f.landmarks);
   } catch {
     clearFace();
   }
@@ -115,6 +115,7 @@ function goTitle(): void {
       inAppBrowser: isInAppBrowser(),
       insecure: !isSecure(),
       faceThumb,
+      face3d: !!faceSkin?.geometry,
       onStart: () => {
         if (faceSkin) {
           useSample = false;
@@ -142,7 +143,7 @@ function goCapture(): void {
     captureScreen({
       onConfirm: (d) => {
         // センサー許可はこのタップ内で取る必要があるので、保存より先に start() を呼ぶ
-        setFace(d.cutout.texture, d.cutout.mask);
+        setFace(d.cutout.texture, d.cutout.mask, d.cutout.landmarks);
         useSample = false;
         void start();
         void persistFace(d);

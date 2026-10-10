@@ -12,6 +12,12 @@ export class SceneView {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setClearColor(0x000000, 0);
     this.scene.add(this.camera);
+    // 立体のお面に陰影を付ける。主光源はカメラに付けて、どの向きでも正面が明るく見えるようにする
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f99, 1.4));
+    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    key.position.set(0.6, 0.8, 0.5);
+    this.camera.add(key);
+    this.camera.add(key.target);
     this.buildVirtualBackground();
     this.resize();
     window.addEventListener('resize', () => this.resize());

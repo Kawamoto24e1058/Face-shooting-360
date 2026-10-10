@@ -61,8 +61,8 @@ export class Effects {
     });
   }
 
-  /** 着弾点にインクの飛沫を貼る（的の子にするので一緒に動く） */
-  splash(target: THREE.Object3D, worldPoint: THREE.Vector3): void {
+  /** 着弾点にインクの飛沫を貼る（的の子にするので一緒に動く）。normal は着弾面の法線（ワールド） */
+  splash(target: THREE.Object3D, worldPoint: THREE.Vector3, normal: THREE.Vector3): void {
     if (!this.enabled) return;
     const mat = new THREE.MeshBasicMaterial({
       map: this.inkTextures[Math.floor(Math.random() * this.inkTextures.length)],
@@ -71,10 +71,12 @@ export class Effects {
       depthWrite: false,
     });
     const m = new THREE.Mesh(this.planeGeo, mat);
-    target.worldToLocal(m.position.copy(worldPoint));
-    m.position.z = 0.01;
-    m.rotation.z = Math.random() * Math.PI * 2;
     target.add(m);
+    target.updateMatrixWorld();
+    const p = worldPoint.clone().addScaledVector(normal, 0.01);
+    target.worldToLocal(m.position.copy(p));
+    m.lookAt(p.clone().add(normal));
+    m.rotateZ(Math.random() * Math.PI * 2);
     this.add({
       obj: m,
       age: 0,
@@ -89,10 +91,20 @@ export class Effects {
   }
 
   /** 命中した部位の範囲を一瞬光らせる（どこに当たったかを分かりやすくする。演出OFFでも表示） */
-  zoneFlash(target: THREE.Object3D, highlight: THREE.Texture, color: string): void {
-    const mat = new THREE.MeshBasicMaterial({ map: highlight, color, transparent: true, depthWrite: false });
-    const m = new THREE.Mesh(this.planeGeo, mat);
-    m.position.z = 0.005;
+  zoneFlash(target: THREE.Mesh, highlight: THREE.Texture, color: string): void {
+    const mat = new THREE.MeshBasicMaterial({
+      map: highlight,
+      color,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    // 的と同じ形に重ねる（立体のお面なら表面だけに色を乗せる）
+    const geo = target.geometry;
+    const hidden = new THREE.MeshBasicMaterial({ visible: false });
+    const m = new THREE.Mesh(geo, geo.groups.length > 0 ? [mat, hidden] : mat);
     target.add(m);
     this.add({
       obj: m,
@@ -101,7 +113,10 @@ export class Effects {
       tick: (t) => {
         mat.opacity = 0.75 * (1 - t * t);
       },
-      dispose: () => mat.dispose(),
+      dispose: () => {
+        mat.dispose();
+        hidden.dispose();
+      },
     });
   }
 
