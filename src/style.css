@@ -1,0 +1,88 @@
+:root {
+  --bg: #101018;
+  --fg: #f4f4f8;
+  --accent: #ff4fa3;
+  --accent2: #4fe3ff;
+  --muted: #9a9ab0;
+  --panel: rgba(16, 16, 24, 0.86);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  touch-action: none; user-select: none; -webkit-user-select: none; overscroll-behavior: none;
+}
+#camera, #gl, #overlay, #ink {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+}
+#camera { object-fit: cover; }
+#camera[hidden] { display: none; }
+#overlay, #ink { pointer-events: none; }
+#ink { opacity: 0; transition: opacity 0.4s; }
+#ink.show { opacity: 1; transition: none; }
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#screen { position: fixed; inset: 0; pointer-events: none; }
+#screen > * { pointer-events: auto; }
+
+.panel {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  background: var(--panel); text-align: center; overflow-y: auto;
+}
+.panel.clear { background: transparent; }
+.panel h1 { margin: 0; font-size: 40px; letter-spacing: 0.04em; }
+.panel h2 { margin: 0; font-size: 24px; }
+.panel p { margin: 0; line-height: 1.6; color: var(--muted); max-width: 30em; }
+.note { font-size: 13px; }
+.warn { background: #3a2a10; color: #ffd27a; padding: 10px 14px; border-radius: 10px; font-size: 14px; max-width: 30em; }
+.btn {
+  appearance: none; border: 0; border-radius: 999px; padding: 14px 32px; font-size: 18px; font-weight: 700;
+  background: var(--accent); color: #fff; min-width: 200px; cursor: pointer;
+}
+.btn.secondary { background: #2a2a3a; }
+.btn:disabled { opacity: 0.4; }
+.settings { display: grid; gap: 10px; text-align: left; width: min(320px, 100%); }
+.settings label { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.countdown { font-size: 120px; font-weight: 900; text-shadow: 0 4px 24px rgba(0,0,0,0.5); }
+.result-table { border-collapse: collapse; min-width: 240px; }
+.result-table td { padding: 4px 12px; border-bottom: 1px solid #2a2a3a; }
+.result-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.big { font-size: 48px; font-weight: 900; color: var(--fg); }
+
+/* HUD */
+.hud-top {
+  position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; right: 12px;
+  display: flex; justify-content: space-between; font-weight: 800; font-size: 20px;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.7); font-variant-numeric: tabular-nums;
+}
+.hud-bottom {
+  position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 16px; right: 16px;
+  display: flex; justify-content: space-between; align-items: flex-end;
+}
+.ammo { font-size: 22px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
+.weapon { font-size: 14px; color: var(--accent2); }
+.reload-btn {
+  pointer-events: auto; appearance: none; border: 2px solid #fff; background: rgba(0,0,0,0.4); color: #fff;
+  border-radius: 50%; width: 76px; height: 76px; font-weight: 800; font-size: 14px;
+}
+.reload-btn.busy { opacity: 0.5; }
+.combo { position: absolute; top: 56px; width: 100%; text-align: center; font-weight: 900; font-size: 22px; color: #ffe14f; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
+.reticle {
+  position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px;
+  border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+}
+.reticle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; background: #fff; border-radius: 50%; }
+.popup {
+  position: absolute; transform: translate(-50%, -50%); font-weight: 900; font-size: 20px; color: #fff;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.8); animation: pop 0.7s ease-out forwards; white-space: nowrap;
+}
+.popup small { display: block; font-size: 14px; color: #ffe14f; }
+@keyframes pop {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(0.6); }
+  15% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -120%) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .popup { animation-duration: 0.9s; }
+}
+.on-camera { color: #fff !important; text-shadow: 0 2px 6px #000; }
