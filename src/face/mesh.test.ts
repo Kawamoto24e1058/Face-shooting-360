@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { boundaryLoops, buildFaceMesh, morphIndex, type Landmark3 } from './mesh';
+import { blendedDepth, boundaryLoops, buildFaceMesh, morphIndex, type Landmark3 } from './mesh';
+import { CANONICAL_FACE } from './canonical';
 import { FACE_TRIANGLES } from './tesselation';
 
 /** 球面の一部に 468 点を並べた合成ランドマーク（中央ほど手前＝z が小さい） */
@@ -70,5 +71,27 @@ describe('expressions', () => {
       for (let i = 0; i < a.length; i++) max = Math.max(max, Math.abs(a[i]));
       expect(max).toBeLessThan(0.15);
     }
+  });
+});
+
+describe('blendedDepth', () => {
+  /** 標準顔の正面配置をそのままテクスチャ座標にしたランドマーク（z は極端な値） */
+  const fromCanonical = (zNoise: number): Landmark3[] =>
+    Array.from({ length: 468 }, (_, i) => ({
+      x: 0.5 + CANONICAL_FACE[i * 3] / 40,
+      y: 0.5 - CANONICAL_FACE[i * 3 + 1] / 40,
+      z: i === 1 ? -zNoise : 0,
+    }));
+  it('uses the canonical nose height regardless of a noisy estimate', () => {
+    const calm = blendedDepth(fromCanonical(0), 0);
+    const noisy = blendedDepth(fromCanonical(5), 0);
+    expect(noisy[1]).toBeCloseTo(calm[1]);
+    // 鼻先（1）が外周（234）より手前
+    expect(calm[1]).toBeGreaterThan(calm[234]);
+  });
+  it('mixes the personal estimate by the given ratio', () => {
+    const a = blendedDepth(fromCanonical(0), 0.2);
+    const b = blendedDepth(fromCanonical(1), 0.2);
+    expect(b[1] - a[1]).toBeCloseTo(0.2);
   });
 });

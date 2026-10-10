@@ -67,11 +67,7 @@ export function makeCutout(
   t.drawImage(source, 0, 0);
   t.restore();
   t.restore();
-  // 背景（カメラ映像）から浮くように、輪郭に白い縁取り
-  t.lineWidth = size * 0.012;
-  t.strokeStyle = 'rgba(255,255,255,0.9)';
-  polygon(t, oval);
-  t.stroke();
+  // 輪郭の縁取りはしない（立体表示ではフードが輪郭を囲むため、白い線が帯のように見えてしまう）
 
   // ゾーンマスク（後に描いた部位が優先）
   const [mask, m] = canvas(size);

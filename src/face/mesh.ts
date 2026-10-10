@@ -1,7 +1,11 @@
 import { FACE_TRIANGLES } from './tesselation';
+import { CANONICAL_FACE } from './canonical';
 
 /**
  * 顔ランドマーク（テクスチャ座標 x,y ∈ 0〜1 と奥行き z）から、立体の「お面」メッシュを作る（純関数）。
+ * - 正面から見た配置（x,y）と見た目（テクスチャ）は本人の写真のまま
+ * - 奥行き（z）は MediaPipe の標準顔モデルを使う。写真1枚からの推定は鼻やあごが極端になりやすいため
+ *   （本人の推定値は personalDepth の割合だけ混ぜる）
  * - 表面: MediaPipe の 468 点メッシュ。目と口の穴は中心点を足して塞ぐ
  * - 側面と裏: 外周を後ろへ押し出して厚みを付ける（素材は単色）
  * 座標は 1×1 の板と同じスケール（中心原点、+Y 上、+Z 手前）。
@@ -24,8 +28,10 @@ export interface FaceMeshData {
 }
 
 export const MESH_PARAMS = {
-  /** 奥行きの強調（写真からの推定値は控えめに出るため） */
-  depthScale: 1.2,
+  /** 奥行きに本人の推定値を混ぜる割合（0 = 標準顔のみ） */
+  personalDepth: 0.2,
+  /** 標準顔の奥行きの倍率（1 = 実際の顔の比率） */
+  canonicalDepth: 0.85,
   /** お面の厚み（外周から後ろへ） */
   thickness: 0.1,
   /** 裏側の外周を内側に寄せる割合（丸みを出す） */
@@ -80,10 +86,31 @@ const EYES = LOOPS.filter((l) => l !== OUTER && l !== MOUTH);
 /** 頂点がどのランドマークの動きに従うか（表情の変形用）。-1 は動かない */
 type Follow = number | number[];
 
+/** 本人の配置に合わせた奥行き。標準顔を本人の大きさに合わせて縮尺し、本人の推定値を少し混ぜる */
+export function blendedDepth(lm: readonly Landmark3[], personal: number = MESH_PARAMS.personalDepth): number[] {
+  const C = CANONICAL_FACE;
+  let ux = 0, uy = 0, cx = 0, cy = 0;
+  for (let i = 0; i < 468; i++) {
+    ux += lm[i].x;
+    uy += lm[i].y;
+    cx += C[i * 3];
+    cy += C[i * 3 + 1];
+  }
+  ux /= 468; uy /= 468; cx /= 468; cy /= 468;
+  let su = 0, sc = 0;
+  for (let i = 0; i < 468; i++) {
+    su += (lm[i].x - ux) ** 2 + (lm[i].y - uy) ** 2;
+    sc += (C[i * 3] - cx) ** 2 + (C[i * 3 + 1] - cy) ** 2;
+  }
+  const scale = Math.sqrt(su / sc) * MESH_PARAMS.canonicalDepth;
+  return Array.from({ length: 468 }, (_, i) => (1 - personal) * C[i * 3 + 2] * scale + personal * -lm[i].z);
+}
+
 export function buildFaceMesh(lm: readonly Landmark3[]): FaceMeshData {
   const P = MESH_PARAMS;
   // 表面の頂点。z は外周の平均を 0 にそろえる
-  const zOf = (i: number) => -lm[i].z * P.depthScale;
+  const depth = blendedDepth(lm);
+  const zOf = (i: number) => depth[i];
   const zBase = OUTER.reduce((s, i) => s + zOf(i), 0) / OUTER.length;
   const pos: number[] = [];
   const uv: number[] = [];

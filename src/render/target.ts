@@ -4,18 +4,17 @@ import { EXPRESSION_PARAMS, PERSONALITY, type Personality } from '../core/expres
 import { EXPRESSIONS, morphIndex, type Expression } from '../face/mesh';
 import type { ZoneMask } from '../face/zoneMask';
 import type { Zone } from '../core/score';
+import { createDecor, hoodColor, type Decor, type DecorKind } from './decor';
 
 const DEG = Math.PI / 180;
 const planeGeometry = new THREE.PlaneGeometry(1, 1);
-/** お面の側面・裏の色 */
-const SHELL_COLOR = 0xf3e7da;
 /** 口の中の色 */
 const MOUTH_COLOR = 0x3a0d18;
 /** ボスの裏（弱点）の色 */
 const WEAK_COLOR = 0xff4fa3;
 /** 立体の顔を見せるための首振り */
-const SWAY_YAW = 28 * DEG;
-const SWAY_PITCH = 8 * DEG;
+const SWAY_YAW = 14 * DEG;
+const SWAY_PITCH = 5 * DEG;
 
 export interface FaceSkin {
   texture: THREE.Texture;
@@ -88,6 +87,7 @@ export class Target {
   /** 表情の重み（morphTargetInfluences に入れる値の目標） */
   private readonly influence: number[];
   private readonly weakMaterial: THREE.MeshLambertMaterial | null = null;
+  private readonly decor: Decor;
 
   constructor(skin: FaceSkin, p: SpawnPoint, opts: TargetOptions) {
     const { rng } = opts;
@@ -117,8 +117,9 @@ export class Target {
     this.swayFreq = 0.3 + rng() * 0.3;
     this.influence = new Array(EXPRESSIONS.length - 1).fill(0);
 
+    const decorKind: DecorKind = this.boss ? 'boss' : p.rare ? 'rare' : this.expression;
     if (skin.geometry) {
-      const shell = new THREE.MeshLambertMaterial({ color: this.boss ? WEAK_COLOR : SHELL_COLOR });
+      const shell = new THREE.MeshLambertMaterial({ color: this.boss ? WEAK_COLOR : hoodColor(decorKind) });
       if (this.boss) {
         shell.emissive.set(WEAK_COLOR);
         this.weakMaterial = shell;
@@ -135,6 +136,9 @@ export class Target {
       );
     }
     this.mesh.userData.target = this;
+    // 頭まわりの装飾（性格が見た目で分かるように）
+    this.decor = createDecor(decorKind);
+    this.mesh.add(this.decor.group);
     this.mesh.scale.setScalar(0.001);
     this.place();
   }
@@ -217,11 +221,13 @@ export class Target {
     if (this.flinch > 0) scale *= 1 - 0.08 * Math.sin((this.flinch / FLINCH_SEC) * Math.PI);
     this.mesh.scale.setScalar(Math.max(0.001, scale * this.size));
     this.updateExpression(dt);
+    this.decor.update(dt);
     if (this.weakMaterial) this.weakMaterial.emissiveIntensity = 0.4 + 0.3 * Math.sin(this.age * 6);
     this.place();
   }
 
   dispose(): void {
+    this.decor.dispose();
     this.mesh.removeFromParent();
     const mats = this.mesh.material;
     (Array.isArray(mats) ? mats : [mats]).forEach((m) => m.dispose());
