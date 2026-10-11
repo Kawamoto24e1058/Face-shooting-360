@@ -65,7 +65,7 @@ export function titleScreen(o: TitleOptions): HTMLElement {
 
   return el('div', { className: 'panel' }, [
     el('h1', { textContent: 'Face360' }),
-    el('p', { className: 'note', textContent: '（仮タイトル）360°見回して、インクを撃ってくる顔を倒し、ステージごとのボスに挑む' }),
+    el('p', { className: 'note', textContent: '（仮タイトル）360°見回して、逃げられる前に顔を撃つ。制限時間内にステージごとのボスを倒そう' }),
     ...warnings,
     el('div', { className: 'warn', textContent: '⚠ 体ごと回って遊びます。周囲に人や物がないか確認してください。座って遊ぶときは「座りモード」をONにしてください。' }),
     ...(o.pwa.needRefresh
@@ -86,7 +86,7 @@ export function titleScreen(o: TitleOptions): HTMLElement {
       textContent:
         o.bestStage > 0
           ? `ベスト: ${o.bestStage > STAGES.length ? '全クリア' : `STAGE ${o.bestStage}`}／${o.bestScore.toLocaleString()}点`
-          : `全${STAGES.length}ステージ。飛んでくるインク弾は撃ち落とせます。`,
+          : `全${STAGES.length}ステージ。逃げられると残り時間が減ります。`,
     }),
     ...installRow(o),
     el('p', { className: 'note', textContent: 'カメラ映像・顔データは端末内だけで処理し、外部に送信しません。' }),
@@ -148,11 +148,10 @@ export function stageClearScreen(o: { info: StageClearInfo; onNext: () => void; 
   return el('div', { className: 'panel' }, [
     el('h2', { textContent: `STAGE ${i.stage} CLEAR!` }),
     el('div', { className: 'stars', textContent: starText(i.stars) }),
-    el('p', { textContent: i.stars === 3 ? 'ノーダメージ！' : i.stars === 2 ? '被弾1回' : '被弾2回以上' }),
+    el('p', { textContent: `残り ${Math.ceil(i.timeLeft)} 秒` }),
     el('table', { className: 'result-table' }, [
       el('tbody', {}, [
         el('tr', {}, [el('td', { textContent: 'クリアボーナス' }), el('td', { textContent: `+${i.bonus.toLocaleString()}` })]),
-        el('tr', {}, [el('td', { textContent: 'ライフ' }), el('td', { textContent: '♥'.repeat(i.lives) + '（1回復）' })]),
         el('tr', {}, [el('td', { textContent: 'スコア' }), el('td', { textContent: i.score.toLocaleString() })]),
       ]),
     ]),
@@ -162,7 +161,15 @@ export function stageClearScreen(o: { info: StageClearInfo; onNext: () => void; 
   ]);
 }
 
-export function resultScreen(o: { result: GameResult; best: number; isBest: boolean; onRetry: () => void; onTitle: () => void }): HTMLElement {
+export function resultScreen(o: {
+  result: GameResult;
+  best: number;
+  isBest: boolean;
+  onRetry: () => void;
+  /** 時間切れのステージから再挑戦 */
+  onRetryStage: () => void;
+  onTitle: () => void;
+}): HTMLElement {
   const r = o.result;
   const rows: [string, string][] = [
     ['到達', r.allClear ? `全${STAGES.length}ステージクリア` : `STAGE ${r.stageReached}`],
@@ -173,13 +180,14 @@ export function resultScreen(o: { result: GameResult; best: number; isBest: bool
     ['ベストスコア', o.best.toLocaleString()],
   ];
   return el('div', { className: 'panel' }, [
-    el('h2', { textContent: r.allClear ? 'ALL CLEAR!' : 'GAME OVER' }),
+    el('h2', { textContent: r.allClear ? 'ALL CLEAR!' : r.timeUp ? 'TIME UP' : 'RESULT' }),
     ...(o.isBest ? [el('p', { textContent: 'NEW RECORD!' })] : []),
     el('div', { className: 'big', textContent: r.score.toLocaleString() }),
     el('table', { className: 'result-table' }, [
       el('tbody', {}, rows.map(([k, v]) => el('tr', {}, [el('td', { textContent: k }), el('td', { textContent: v })]))),
     ]),
-    button('もう一度', o.onRetry),
+    ...(r.timeUp && r.stageReached > 1 ? [button(`STAGE ${r.stageReached} から再挑戦`, o.onRetryStage)] : []),
+    button(r.timeUp && r.stageReached > 1 ? 'STAGE 1 から' : 'もう一度', o.onRetry, r.timeUp && r.stageReached > 1),
     button('タイトルへ', o.onTitle, true),
   ]);
 }

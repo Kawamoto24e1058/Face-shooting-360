@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import { ZONE_BASE, ZONE_COLOR, ZONE_LABEL, ZONE_NAME_JA, type Zone } from '../core/score';
 import type { Target } from '../render/target';
-import type { InkShot } from '../render/projectile';
 
 export interface HudValues {
-  lives: number;
-  maxLives: number;
+  /** 残り時間 [秒] */
+  timeLeft: number;
   /** 画面上部中央の進行表示（例：「STAGE 1　あと5体」） */
   status: string;
   score: number;
@@ -24,7 +23,7 @@ const inv = new THREE.Quaternion();
 /** プレイ中の HUD（DOM）と、画面外の的を示す矢印（2D canvas） */
 export class Hud {
   private readonly el: HTMLElement;
-  private readonly lives: HTMLElement;
+  private readonly time: HTMLElement;
   private readonly status: HTMLElement;
   private readonly hurt: HTMLElement;
   private readonly score: HTMLElement;
@@ -47,7 +46,7 @@ export class Hud {
     this.el = root;
     root.innerHTML = `
       <div class="hurt" data-k="hurt"></div>
-      <div class="hud-top"><span data-k="lives" class="lives"></span><span data-k="status" class="status"></span><span data-k="score"></span></div>
+      <div class="hud-top"><span data-k="time" class="time"></span><span data-k="status" class="status"></span><span data-k="score"></span></div>
       <div class="boss-bar" data-k="boss" hidden><span>BOSS</span><i><b data-k="bossfill"></b></i></div>
       <div class="combo" data-k="combo"></div>
       <div class="combo" data-k="banner" style="top:40%;font-size:28px;color:#fff"></div>
@@ -58,7 +57,7 @@ export class Hud {
         <button class="reload-btn" data-k="reload" type="button">RELOAD</button>
       </div>`;
     const q = (k: string) => root.querySelector(`[data-k="${k}"]`) as HTMLElement;
-    this.lives = q('lives');
+    this.time = q('time');
     this.status = q('status');
     this.hurt = q('hurt');
     this.score = q('score');
@@ -86,7 +85,7 @@ export class Hud {
 
   update(h: HudValues): void {
     const key = [
-      h.lives,
+      Math.ceil(h.timeLeft),
       h.status,
       h.score,
       h.ammo,
@@ -97,7 +96,8 @@ export class Hud {
     ].join('|');
     if (key === this.last) return;
     this.last = key;
-    this.lives.textContent = '♥'.repeat(Math.max(0, h.lives)) + '♡'.repeat(Math.max(0, h.maxLives - h.lives));
+    this.time.textContent = `⏱ ${Math.max(0, Math.ceil(h.timeLeft))}`;
+    this.time.classList.toggle('low', h.timeLeft <= 10);
     this.status.textContent = h.status;
     this.score.textContent = h.score.toLocaleString();
     this.ammo.textContent = h.reloading ? `RELOAD ${Math.round(h.reloadProgress * 100)}%` : `${h.ammo} / ${h.magazine}`;
@@ -113,24 +113,24 @@ export class Hud {
   }
 
   /** 照準の下にある部位を、名前と基本点で示す */
-  setAim(target: Zone | 'item' | 'shot' | null): void {
+  setAim(target: Zone | 'item' | null): void {
     if (target === this.aimKey) return;
     this.aimKey = target;
     if (target === null) {
       this.aim.textContent = '';
       return;
     }
-    if (target === 'item' || target === 'shot') {
-      this.aim.style.color = target === 'item' ? '#ffffff' : '#ff7ac0';
-      this.aim.textContent = target === 'item' ? 'アイテム' : 'インク弾';
+    if (target === 'item') {
+      this.aim.style.color = '#ffffff';
+      this.aim.textContent = 'アイテム';
       return;
     }
     this.aim.style.color = ZONE_COLOR[target];
     this.aim.textContent = `${ZONE_NAME_JA[target]} ${ZONE_BASE[target]}`;
   }
 
-  /** 被弾：画面全体に赤いインク（演出OFFでも出す。ダメージは必ず伝える） */
-  damage(): void {
+  /** 時間ペナルティ：画面の縁を一瞬赤くする（演出OFFでも出す） */
+  penalty(): void {
     this.hurt.classList.remove('show');
     void this.hurt.offsetWidth;
     this.hurt.classList.add('show');
@@ -153,7 +153,8 @@ export class Hud {
     // 照準と重ならないよう少し上に出す
     d.style.top = `${((1 - v.y) / 2) * window.innerHeight - 56}px`;
     d.style.color = ZONE_COLOR[zone];
-    d.innerHTML = `${label ?? ZONE_LABEL[zone]}<small>${label ? '' : ZONE_NAME_JA[zone]} +${points}</small>`;
+    const sub = label ? (points > 0 ? `+${points}` : '') : `${ZONE_NAME_JA[zone]} +${points}`;
+    d.innerHTML = `${label ?? ZONE_LABEL[zone]}${sub ? `<small>${sub}</small>` : ''}`;
     this.el.appendChild(d);
     window.setTimeout(() => d.remove(), 800);
   }
@@ -175,7 +176,7 @@ export class Hud {
   }
 
   /** 画面外の的の方向を、画面端の矢印で示す */
-  drawArrows(camera: THREE.Camera, targets: readonly Target[], shots: readonly InkShot[] = []): void {
+  drawArrows(camera: THREE.Camera, targets: readonly Target[]): void {
     const c = this.overlay;
     const dpr = Math.min(window.devicePixelRatio, 2);
     const w = window.innerWidth;
@@ -193,17 +194,9 @@ export class Hud {
       const color = t.boss ? '#ffffff' : t.rare ? '#ffe14f' : '#ff4fa3';
       this.arrow(camera, t.position, color, t.boss ? 1.8 : 1, w, h);
     }
-    // 画面外から飛んでくるインク弾は、近いほど大きい警告の矢印で知らせる
-    const now = performance.now() / 1000;
-    for (const sh of shots) {
-      if (sh.dead) continue;
-      const near = Math.max(0, Math.min(1, 1 - (sh.position.length() - 1) / 6));
-      const pulse = 1 + 0.15 * Math.sin(now * 20);
-      this.arrow(camera, sh.position, '#ff7a1a', (1.1 + near * 0.9) * pulse, w, h, true);
-    }
   }
 
-  private arrow(camera: THREE.Camera, pos: THREE.Vector3, color: string, scale: number, w: number, h: number, warn = false): void {
+  private arrow(camera: THREE.Camera, pos: THREE.Vector3, color: string, scale: number, w: number, h: number): void {
     const ctx = this.octx;
     const margin = 28;
     v.copy(pos).project(camera);
@@ -233,14 +226,6 @@ export class Hud {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    if (warn) {
-      ctx.rotate(-ang);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 12px system-ui';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('!', 0, 0);
-    }
     ctx.restore();
   }
 

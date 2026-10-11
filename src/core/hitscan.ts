@@ -2,12 +2,10 @@ import * as THREE from 'three';
 import type { Zone } from './score';
 import { Target } from '../render/target';
 import { Item } from '../render/item';
-import { InkShot } from '../render/projectile';
 
 export type RayHit =
   | { kind: 'target'; target: Target; zone: Zone; point: THREE.Vector3; normal: THREE.Vector3; weak: boolean }
-  | { kind: 'item'; item: Item; point: THREE.Vector3 }
-  | { kind: 'shot'; shot: InkShot; point: THREE.Vector3 };
+  | { kind: 'item'; item: Item; point: THREE.Vector3 };
 
 const raycaster = new THREE.Raycaster();
 const dir = new THREE.Vector3();
@@ -36,13 +34,6 @@ export function castRay(
     // 板ポリゴンの対角線上では2つの三角形に同時に当たるので、1オブジェクト1回にする
     if (seen.has(it.object)) continue;
     seen.add(it.object);
-    const shot = it.object.userData.shot as InkShot | undefined;
-    if (shot) {
-      if (shot.dead) continue;
-      out.push({ kind: 'shot', shot, point: it.point.clone() });
-      if (!pierce) break;
-      continue;
-    }
     const item = it.object.userData.item as Item | undefined;
     if (item) {
       if (item.dead) continue;

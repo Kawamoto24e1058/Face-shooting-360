@@ -38,8 +38,8 @@ export function startFacePreview(canvas: HTMLCanvasElement, cutout: Cutout): () 
   const loop = (t: number) => {
     // rAF の時刻は開始時刻より少し前のことがあるので負にしない
     const s = Math.max(0, (t - t0) / 1000);
-    mesh.rotation.y = Math.sin(s * 0.9) * 0.75;
-    mesh.rotation.x = Math.sin(s * 0.6) * 0.12;
+    mesh.rotation.y = Math.sin(s * 0.9) * 0.3;
+    mesh.rotation.x = Math.sin(s * 0.6) * 0.06;
     // 表情を順番に見せる（1つあたり1.6秒、前後0.3秒で補間）
     if (infl) {
       const slot = s / 1.6;

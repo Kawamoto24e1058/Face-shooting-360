@@ -1,10 +1,13 @@
 import type { Expression } from '../face/mesh';
 
 /**
- * ステージ構成（純データ＋純関数）。各ステージは「雑魚を規定数倒す → ボス戦」でクリア。
+ * ステージ構成（純データ＋純関数）。各ステージは制限時間内に「雑魚を規定数倒す → ボスを倒す」でクリア。
+ * 反撃はなく、時間切れで失敗。的に逃げられると残り時間が減る。
  * 数値はすべて初期値。実機で調整する。
  */
 export interface StageConfig {
+  /** 制限時間 [秒]（ボス戦を含む） */
+  timeLimit: number;
   /** ボス戦までに倒す数 */
   quota: number;
   /** 同時に出る雑魚の上限（設定の上限とも比べて小さい方） */
@@ -15,95 +18,35 @@ export interface StageConfig {
   speed: number;
   /** 動く的の割合 */
   movingRatio: number;
-  /** 雑魚の射撃間隔の倍率（小さいほど頻繁） */
-  fireIntervalMul: number;
-  /** インク弾の速さ [距離/秒] */
-  shotSpeed: number;
+  /** 雑魚が逃げるまでの時間 [秒] */
+  stay: number;
   bossHp: number;
-  /** ボスの扇状射撃の弾数 */
-  bossVolley: number;
-  /** ボスが呼ぶ子分の数 */
+  /** ボスが呼ぶ子分の数（子分がいる間、ボスはガードする） */
   bossMinions: number;
 }
 
+const ALL: readonly Expression[] = ['neutral', 'smile', 'surprise', 'eyesClosed', 'angry', 'mouthOpen'];
+
 export const STAGES: readonly StageConfig[] = [
-  {
-    quota: 8,
-    maxConcurrent: 3,
-    expressions: ['neutral', 'smile'],
-    speed: 0.12,
-    movingRatio: 0.2,
-    fireIntervalMul: 1.4,
-    shotSpeed: 2.2,
-    bossHp: 12,
-    bossVolley: 3,
-    bossMinions: 2,
-  },
-  {
-    quota: 10,
-    maxConcurrent: 4,
-    expressions: ['neutral', 'smile', 'surprise', 'eyesClosed'],
-    speed: 0.18,
-    movingRatio: 0.4,
-    fireIntervalMul: 1.2,
-    shotSpeed: 2.5,
-    bossHp: 16,
-    bossVolley: 4,
-    bossMinions: 2,
-  },
-  {
-    quota: 12,
-    maxConcurrent: 5,
-    expressions: ['neutral', 'smile', 'surprise', 'eyesClosed', 'angry', 'mouthOpen'],
-    speed: 0.24,
-    movingRatio: 0.55,
-    fireIntervalMul: 1,
-    shotSpeed: 2.8,
-    bossHp: 20,
-    bossVolley: 5,
-    bossMinions: 3,
-  },
-  {
-    quota: 14,
-    maxConcurrent: 6,
-    expressions: ['neutral', 'smile', 'surprise', 'eyesClosed', 'angry', 'mouthOpen'],
-    speed: 0.3,
-    movingRatio: 0.7,
-    fireIntervalMul: 0.85,
-    shotSpeed: 3.1,
-    bossHp: 24,
-    bossVolley: 6,
-    bossMinions: 3,
-  },
-  {
-    quota: 16,
-    maxConcurrent: 7,
-    expressions: ['neutral', 'smile', 'surprise', 'eyesClosed', 'angry', 'mouthOpen'],
-    speed: 0.36,
-    movingRatio: 0.8,
-    fireIntervalMul: 0.7,
-    shotSpeed: 3.4,
-    bossHp: 30,
-    bossVolley: 7,
-    bossMinions: 4,
-  },
+  { timeLimit: 50, quota: 8, maxConcurrent: 3, expressions: ['neutral', 'smile'], speed: 0.12, movingRatio: 0.2, stay: 9, bossHp: 12, bossMinions: 2 },
+  { timeLimit: 55, quota: 10, maxConcurrent: 4, expressions: ['neutral', 'smile', 'surprise', 'eyesClosed'], speed: 0.18, movingRatio: 0.4, stay: 8, bossHp: 16, bossMinions: 2 },
+  { timeLimit: 60, quota: 12, maxConcurrent: 5, expressions: ALL, speed: 0.24, movingRatio: 0.55, stay: 7, bossHp: 20, bossMinions: 3 },
+  { timeLimit: 65, quota: 14, maxConcurrent: 6, expressions: ALL, speed: 0.3, movingRatio: 0.7, stay: 6.5, bossHp: 24, bossMinions: 3 },
+  { timeLimit: 70, quota: 16, maxConcurrent: 7, expressions: ALL, speed: 0.36, movingRatio: 0.8, stay: 6, bossHp: 30, bossMinions: 4 },
 ];
 
-export const MAX_LIVES = 3;
+/** 的に逃げられたときに減る時間 [秒] */
+export const ESCAPE_PENALTY_SEC = 2;
 
-/** ステージの評価（★1〜3）。被弾しなければ★3、1回までなら★2、それ以上は★1 */
-export function stageStars(damageTaken: number): 1 | 2 | 3 {
-  if (damageTaken <= 0) return 3;
-  if (damageTaken <= 1) return 2;
+/** ★評価：残り時間が半分以上で★3、4分の1以上で★2、それ未満は★1 */
+export function stageStars(timeLeft: number, timeLimit: number): 1 | 2 | 3 {
+  const r = timeLeft / timeLimit;
+  if (r >= 0.5) return 3;
+  if (r >= 0.25) return 2;
   return 1;
 }
 
-/** ステージクリア時の回復（ライフ上限まで1回復） */
-export function livesAfterClear(lives: number): number {
-  return Math.min(MAX_LIVES, lives + 1);
-}
-
-/** ステージクリアのボーナス（★の数と残りライフで決める） */
-export function clearBonus(stars: number, lives: number): number {
-  return stars * 1000 + lives * 500;
+/** ステージクリアのボーナス（★と残り時間で決める） */
+export function clearBonus(stars: number, timeLeft: number): number {
+  return stars * 1000 + Math.floor(timeLeft) * 50;
 }

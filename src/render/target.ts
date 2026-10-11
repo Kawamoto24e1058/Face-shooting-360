@@ -13,8 +13,8 @@ const MOUTH_COLOR = 0x3a0d18;
 /** ボスの裏（弱点）の色 */
 const WEAK_COLOR = 0xff4fa3;
 /** 立体の顔を見せるための首振り */
-const SWAY_YAW = 14 * DEG;
-const SWAY_PITCH = 5 * DEG;
+const SWAY_YAW = 8 * DEG;
+const SWAY_PITCH = 3 * DEG;
 
 export interface FaceSkin {
   texture: THREE.Texture;
@@ -56,8 +56,6 @@ export interface TargetOptions {
   boss?: boolean;
   /** 体力の上書き（ボスはステージごとに決める） */
   hp?: number;
-  /** 射撃間隔の倍率（ステージで決める） */
-  fireIntervalMul?: number;
   /** 寿命の上書き（Infinity でずっと残る） */
   lifeSec?: number;
 }
@@ -92,12 +90,12 @@ export class Target {
   private readonly influence: number[];
   private readonly weakMaterial: THREE.MeshLambertMaterial | null = null;
   private readonly decor: Decor;
-  private fireCooldown: number;
-  private readonly fireIntervalMul: number;
-  /** 撃つ直前（口を開けて知らせる）の残り時間 */
+  /** ボスが子分を呼ぶ前に口を開けて知らせる残り時間 */
   windup = 0;
-  /** 突進でプレイヤーにたどり着いた（ゲーム側で1回だけダメージにする） */
-  private attackPending = false;
+  /** 寿命・突進で逃げた */
+  private escapePending = false;
+  /** ボス：子分がいる間はガード（ダメージを受けない） */
+  guarded = false;
   /** ボス：回転して裏を見せているか */
   bossSpin = false;
   private bossAzTarget: number | null = null;
@@ -127,9 +125,6 @@ export class Target {
     // 遠くても見えるよう、距離に応じて少し大きくする
     this.size = this.boss ? BOSS_PARAMS.size : (p.rare ? 1.0 : 1.35) * (0.7 + 0.3 * (p.distance / SPAWN_PARAMS.distanceMin));
     this.lifeSec = opts.lifeSec ?? (this.boss ? Infinity : 9 + rng() * 4);
-    this.fireIntervalMul = opts.fireIntervalMul ?? 1;
-    // 出てすぐは撃たない（最初の1発は少し遅らせる）
-    this.fireCooldown = this.personality.fireInterval * this.fireIntervalMul * (0.6 + rng() * 0.6);
     this.swayPhase = rng() * Math.PI * 2;
     this.swayFreq = 0.3 + rng() * 0.3;
     this.influence = new Array(EXPRESSIONS.length - 1).fill(0);
@@ -190,25 +185,11 @@ export class Target {
     return this.mesh.localToWorld(new THREE.Vector3(0, -0.28, 0.15));
   }
 
-  /**
-   * 射撃のタイマーを進める。撃つ瞬間なら弾数を返す（それ以外は 0）。
-   * 撃つ前に windup の間だけ口を開けて知らせる。
-   */
-  takeFire(dt: number, rng: () => number): number {
-    const P = this.personality;
-    if (!this.alive || this.state === 'enter' || !Number.isFinite(P.fireInterval) || this.boss) return 0;
-    this.fireCooldown -= dt;
-    this.windup = Math.max(0, Math.min(EXPRESSION_PARAMS.fireWindupSec, this.fireCooldown));
-    if (this.fireCooldown > 0) return 0;
-    this.fireCooldown = P.fireInterval * this.fireIntervalMul * (0.7 + rng() * 0.6);
-    return P.burst;
-  }
-
-  /** 突進でたどり着いたか（1回だけ true を返す） */
-  consumeAttack(): boolean {
-    const a = this.attackPending;
-    this.attackPending = false;
-    return a;
+  /** 寿命で逃げた（ゲーム側で1回だけ時間ペナルティにする） */
+  consumeEscape(): boolean {
+    const e = this.escapePending;
+    this.escapePending = false;
+    return e;
   }
 
   /** 退場させる（ボス戦の開始時など） */
@@ -228,6 +209,10 @@ export class Target {
   /** ダメージを与える。倒したら true */
   damage(amount = 1): boolean {
     if (!this.alive) return false;
+    if (this.guarded) {
+      this.flinch = FLINCH_SEC * 0.5;
+      return false;
+    }
     this.hp -= amount;
     if (this.hp > 0) {
       this.flinch = FLINCH_SEC;
@@ -261,7 +246,10 @@ export class Target {
         if (this.stateAge >= ENTER_SEC) this.setState('alive');
         break;
       case 'alive':
-        if (this.age >= this.lifeSec) this.setState('leave');
+        if (this.age >= this.lifeSec) {
+          this.escapePending = true;
+          this.setState('leave');
+        }
         break;
       case 'hit':
         // 顔は崩さず、少し揺れてから引っ込む
@@ -292,13 +280,13 @@ export class Target {
     (Array.isArray(mats) ? mats : [mats]).forEach((m) => m.dispose());
   }
 
-  /** 突進：近づいてきて、たどり着いたら体当たり（ダメージ）して去る */
+  /** 突進：近づいてきて、目の前まで来ると逃げていく（逃げられると時間ペナルティ） */
   private updateCharge(dt: number): void {
     const P = EXPRESSION_PARAMS;
-    if (this.state === 'enter') return;
+    if (this.state === 'enter' || this.lifeSec === Infinity) return;
     this.distance = Math.max(P.chargeMinDistance, this.distance - P.chargeSpeed * this.personality.speedMul * dt);
     if (this.distance <= P.chargeMinDistance) {
-      this.attackPending = true;
+      this.escapePending = true;
       this.setState('leave');
     }
   }
@@ -337,7 +325,7 @@ export class Target {
     };
     const e = this.expression;
     if (this.windup > 0 && this.alive) {
-      // 撃つ前：口を大きく開けて知らせる
+      // 子分を呼ぶ前：口を大きく開けて知らせる
       set('mouthOpen', 1);
     } else if (this.state === 'hit' || this.flinch > 0) {
       // 当たったら目をつぶる（顔は崩さない）

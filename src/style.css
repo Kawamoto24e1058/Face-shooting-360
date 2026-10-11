@@ -111,7 +111,9 @@ html, body {
 .boss-bar i { flex: 1; height: 10px; border-radius: 5px; background: rgba(0,0,0,0.5); overflow: hidden; border: 1px solid rgba(255,255,255,0.6); }
 .boss-bar b { display: block; height: 100%; width: 100%; background: var(--accent); transition: width 0.15s; }
 
-.hud-top .lives { color: #ff4f6d; letter-spacing: 2px; min-width: 5em; }
+.hud-top .time { min-width: 5em; }
+.hud-top .time.low { color: #ff4f6d; animation: low 0.6s ease-in-out infinite alternate; }
+@keyframes low { from { opacity: 1; } to { opacity: 0.5; } }
 .hud-top .status { font-size: 15px; align-self: center; }
 .hud-top > span:last-child { min-width: 5em; text-align: right; }
 .hurt { position: absolute; inset: 0; opacity: 0; pointer-events: none;

@@ -97,24 +97,14 @@ export class Sfx {
     if (p) this.tone(400, 800, 0.15, 'sine', 0.5, 0, p);
   }
 
-  /** インク弾の発射音（方向付き。後ろから撃たれても分かるように） */
-  shotFired(position: THREE.Vector3): void {
-    const p = this.panner(position);
-    if (p) {
-      this.tone(900, 300, 0.25, 'sawtooth', 0.35, 0, p);
-      this.tone(600, 200, 0.2, 'square', 0.15, 0.05, p);
-    }
+  /** 的に逃げられた（時間ペナルティ） */
+  escaped(): void {
+    this.tone(500, 250, 0.25, 'triangle', 0.25);
   }
 
-  /** インク弾を撃ち落とした */
-  shotPop(): void {
-    this.tone(1500, 700, 0.08, 'triangle', 0.3);
-  }
-
-  /** 被弾 */
-  hurt(): void {
-    this.noiseBurst(0.35, 900, 0.7);
-    this.tone(220, 70, 0.4, 'square', 0.3);
+  /** 時間切れ */
+  timeUp(): void {
+    [440, 349, 262].forEach((f, i) => this.tone(f, f * 0.98, 0.25, 'square', 0.2, i * 0.18));
   }
 
   /** ステージクリア */

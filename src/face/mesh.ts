@@ -29,9 +29,9 @@ export interface FaceMeshData {
 
 export const MESH_PARAMS = {
   /** 奥行きに本人の推定値を混ぜる割合（0 = 標準顔のみ） */
-  personalDepth: 0.2,
+  personalDepth: 0,
   /** 標準顔の奥行きの倍率（1 = 実際の顔の比率） */
-  canonicalDepth: 0.85,
+  canonicalDepth: 0.35,
   /** お面の厚み（外周から後ろへ） */
   thickness: 0.1,
   /** 裏側の外周を内側に寄せる割合（丸みを出す） */

@@ -14,12 +14,11 @@ import { pickSpawnPoint, SPAWN_PARAMS } from './spawner';
 import { pickExpression } from './expressions';
 import { castRay, type RayHit } from './hitscan';
 import { Weapon, WEAPON_PARAMS } from './weapon';
-import { clearBonus, livesAfterClear, MAX_LIVES, stageStars, STAGES, type StageConfig } from './stages';
+import { clearBonus, ESCAPE_PENALTY_SEC, stageStars, STAGES, type StageConfig } from './stages';
 import { BOSS_TIMING, BossBrain } from './boss';
 import { yawOf } from './orientation';
 import { BOSS_PARAMS, Target, type FaceSkin } from '../render/target';
 import { Item } from '../render/item';
-import { InkShot } from '../render/projectile';
 import type { Effects } from '../render/effects';
 import type { SceneView } from '../render/scene';
 import type { Sfx } from '../audio/sfx';
@@ -28,12 +27,6 @@ import type { Settings } from '../state/store';
 
 const ITEM_DROP_CHANCE = 0.15;
 const MUZZLE = new THREE.Vector3(0.12, -0.2, -0.3);
-/** インク弾を撃ち落としたときの点 */
-const SHOT_POINTS = 50;
-/** 被弾後の無敵時間 [秒] */
-const INVULNERABLE_SEC = 1.3;
-/** 扇状射撃の1発ごとのずれ [rad] */
-const FAN_STEP = 0.12;
 
 export type GamePhase = 'wave' | 'boss' | 'cleared' | 'over';
 
@@ -41,7 +34,7 @@ export interface StageClearInfo {
   stage: number;
   stars: 1 | 2 | 3;
   bonus: number;
-  lives: number;
+  timeLeft: number;
   score: number;
   /** 最後のステージだった */
   allClear: boolean;
@@ -50,6 +43,8 @@ export interface StageClearInfo {
 export interface GameResult extends ScoreState {
   /** 到達したステージ（1始まり） */
   stageReached: number;
+  /** 時間切れで終わった */
+  timeUp: boolean;
   allClear: boolean;
   stars: number[];
 }
@@ -60,8 +55,9 @@ export interface GameCallbacks {
 }
 
 /**
- * ステージ制のゲーム進行。各ステージは「雑魚を規定数倒す → ボス戦（ボスだけ）」でクリア。
- * 顔はインク弾を撃ち返してきて、当たるとライフが減る。ライフ0でゲームオーバー。
+ * ステージ制のゲーム進行。各ステージは制限時間内に「雑魚を規定数倒す → ボス戦（ボスだけ）」でクリア。
+ * 反撃はない（360度を見回すゲームで後ろから撃たれると対処できないため）。
+ * 的に逃げられると残り時間が減り、時間切れで失敗。
  * 描画・入力は外から渡し、ここでは進行とルールだけを扱う。
  */
 export class Game {
@@ -69,15 +65,13 @@ export class Game {
   readonly weapon = new Weapon();
   phase: GamePhase = 'wave';
   stageIndex = 0;
-  lives = MAX_LIVES;
   kills = 0;
+  /** ステージの残り時間 [秒] */
+  timeLeft = 0;
   private time = 0;
-  private damageTaken = 0;
-  private invulnerable = 0;
   private stars: number[] = [];
   private targets: Target[] = [];
   private items: Item[] = [];
-  private shots: InkShot[] = [];
   private spawnTimer = 0;
   private boss: Target | null = null;
   private brain: BossBrain | null = null;
@@ -108,8 +102,7 @@ export class Game {
     this.stageIndex = index;
     this.phase = 'wave';
     this.kills = 0;
-    this.damageTaken = 0;
-    this.invulnerable = 0;
+    this.timeLeft = this.stage.timeLimit;
     this.spawnTimer = 0.5;
     this.weapon.ammo = WEAPON_PARAMS.magazine;
     this.weapon.equip('normal', this.time);
@@ -121,7 +114,12 @@ export class Game {
     if (this.phase === 'cleared' || this.phase === 'over') return;
     this.time += dt;
     const now = this.time;
-    this.invulnerable = Math.max(0, this.invulnerable - dt);
+    this.timeLeft -= dt;
+    if (this.timeLeft <= 0) {
+      this.timeLeft = 0;
+      this.timeUpFail();
+      return;
+    }
 
     this.weapon.update(now);
     const reloading = this.weapon.isReloading(now);
@@ -133,27 +131,14 @@ export class Game {
 
     for (const t of this.targets) {
       t.update(dt);
-      // 突進がたどり着いた
-      if (t.consumeAttack()) this.damagePlayer();
-      // 射撃
-      const n = t.takeFire(dt, this.rng);
-      if (n > 0) this.fireFan(t, n, this.stage.shotSpeed);
+      // 逃げられたら時間ペナルティ（ボス戦の子分は除く）
+      if (t.consumeEscape() && this.phase === 'wave') this.escapePenalty(t);
     }
+    // 子分がいる間、ボスはガードする
+    if (this.boss) this.boss.guarded = this.targets.some((t) => t.alive && t !== this.boss);
     this.targets = this.targets.filter((t) => {
       if (t.state !== 'dead') return true;
       t.dispose();
-      return false;
-    });
-    for (const sh of this.shots) {
-      sh.update(dt);
-      if (sh.reached) {
-        sh.reached = false;
-        this.damagePlayer();
-      }
-    }
-    this.shots = this.shots.filter((sh) => {
-      if (!sh.dead) return true;
-      sh.dispose();
       return false;
     });
     for (const it of this.items) it.update(dt);
@@ -165,9 +150,11 @@ export class Game {
     this.effects.update(dt);
 
     this.hud.update({
-      lives: this.lives,
-      maxLives: MAX_LIVES,
-      status: this.phase === 'boss' ? `STAGE ${this.stageIndex + 1}　BOSS` : `STAGE ${this.stageIndex + 1}　あと${Math.max(0, this.stage.quota - this.kills)}体`,
+      timeLeft: this.timeLeft,
+      status:
+        this.phase === 'boss'
+          ? `STAGE ${this.stageIndex + 1}　${this.boss?.guarded ? '子分を倒せ' : 'BOSS'}`
+          : `STAGE ${this.stageIndex + 1}　あと${Math.max(0, this.stage.quota - this.kills)}体`,
       score: this.score.score,
       ammo: this.weapon.ammo,
       magazine: WEAPON_PARAMS.magazine,
@@ -177,7 +164,7 @@ export class Game {
       powerupRemaining: this.weapon.powerupRemaining(now),
       combo: this.score.combo,
     });
-    this.hud.drawArrows(this.view.camera, this.targets, this.shots);
+    this.hud.drawArrows(this.view.camera, this.targets);
     this.hud.setAim(this.aimAt());
     this.sfx.updateListener(this.view.camera);
   }
@@ -195,11 +182,10 @@ export class Game {
     if (this.kills >= st.quota) this.startBoss();
   }
 
-  /** ボス戦の開始：他の的・弾はすべて退場させ、ボスだけにする */
+  /** ボス戦の開始：他の的はすべて退場させ、ボスだけにする */
   private startBoss(): void {
     this.phase = 'boss';
     for (const t of this.targets) t.dismiss();
-    for (const sh of this.shots) sh.dead = true;
     const skin = this.skins[0];
     // プレイヤーが今向いている方向に出す（見失わないように）
     const az = yawOf(this.view.camera.quaternion);
@@ -207,7 +193,7 @@ export class Game {
     this.boss = new Target(skin, p, { moving: false, speed: 0, rng: this.rng, boss: true, hp: this.stage.bossHp });
     this.targets.push(this.boss);
     this.view.scene.add(this.boss.mesh);
-    this.brain = new BossBrain({ volley: this.stage.bossVolley, minions: this.stage.bossMinions });
+    this.brain = new BossBrain({ minions: this.stage.bossMinions });
     this.hud.setBoss(1);
     this.hud.showBanner('BOSS！ 裏の弱点を狙え', 2.5);
     this.sfx.spawnAt(this.boss.position);
@@ -232,9 +218,6 @@ export class Game {
         case 'windup':
           boss.windup = BOSS_TIMING.windup;
           break;
-        case 'volley':
-          this.fireFan(boss, a.count, this.stage.shotSpeed * 1.1);
-          break;
         case 'summon':
           this.summonMinions(boss, a.count);
           break;
@@ -243,60 +226,43 @@ export class Game {
     boss.windup = Math.max(0, boss.windup - dt);
   }
 
-  /** 口から扇状にインク弾を撃つ */
-  private fireFan(from: Target, count: number, speed: number): void {
-    const origin = from.mouthWorld();
-    const up = new THREE.Vector3(0, 1, 0);
-    for (let i = 0; i < count; i++) {
-      const offset = (i - (count - 1) / 2) * FAN_STEP;
-      // プレイヤー（原点）の左右に少しずらした点を狙う
-      const aim = new THREE.Vector3().sub(origin).normalize();
-      aim.applyAxisAngle(up, offset);
-      const to = origin.clone().add(aim.multiplyScalar(origin.length()));
-      const shot = new InkShot(origin, speed, count === 1 ? new THREE.Vector3() : to);
-      this.shots.push(shot);
-      this.view.scene.add(shot.group);
-    }
-    this.sfx.shotFired(origin);
-  }
-
   private summonMinions(boss: Target, count: number): void {
     for (let i = 0; i < count; i++) {
-      const az = boss.azimuth + (i - (count - 1) / 2) * 0.35;
-      const p = { azimuth: az, elevation: boss.elevation + (this.rng() - 0.5) * 0.3, distance: BOSS_PARAMS.distance - 1, rare: false };
+      // ボスの左右・上下に散らして、ボスと重ならないようにする（ボスと同じくらいの距離）
+      const side = i % 2 === 0 ? 1 : -1;
+      const az = boss.azimuth + side * (0.42 + Math.floor(i / 2) * 0.32);
+      const el = boss.elevation + (i % 4 < 2 ? 0.22 : -0.18);
+      const p = { azimuth: az, elevation: el, distance: BOSS_PARAMS.distance - 2.5, rare: false };
       const t = new Target(this.skins[0], p, { moving: false, speed: 0, rng: this.rng, expression: 'angry', lifeSec: Infinity });
       this.targets.push(t);
       this.view.scene.add(t.mesh);
     }
     this.sfx.spawnAt(boss.position);
+    this.hud.showBanner('子分を倒せ！', 1.6);
   }
 
-  private damagePlayer(): void {
-    if (this.invulnerable > 0 || this.phase === 'cleared' || this.phase === 'over') return;
-    this.lives -= 1;
-    this.damageTaken += 1;
-    this.invulnerable = INVULNERABLE_SEC;
+  /** 的に逃げられた：残り時間を減らす */
+  private escapePenalty(t: Target): void {
+    this.timeLeft = Math.max(0, this.timeLeft - ESCAPE_PENALTY_SEC);
     this.score = breakCombo(this.score);
-    this.hud.damage();
-    this.sfx.hurt();
-    navigator.vibrate?.(200);
-    if (this.lives <= 0) this.gameOver();
+    this.hud.penalty();
+    this.hud.popup(this.view.camera, t.position, 'cheek', 0, `-${ESCAPE_PENALTY_SEC}秒`);
+    this.sfx.escaped();
   }
 
   /** 照準（画面中央）の下にあるもの */
-  private aimAt(): Zone | 'item' | 'shot' | null {
+  private aimAt(): Zone | 'item' | null {
     const camera = this.view.camera;
     camera.updateMatrixWorld();
     const hit = castRay(camera, 0, 0, this.raycastObjects(), false)[0];
     if (!hit) return null;
-    return hit.kind === 'target' ? hit.zone : hit.kind;
+    return hit.kind === 'target' ? hit.zone : 'item';
   }
 
   private raycastObjects(): THREE.Object3D[] {
     return [
       ...this.targets.filter((t) => t.alive).map((t) => t.mesh),
       ...this.items.filter((i) => !i.dead).map((i) => i.mesh),
-      ...this.shots.filter((s) => !s.dead).map((s) => s.hitMesh),
     ];
   }
 
@@ -341,14 +307,12 @@ export class Game {
         this.hud.showBanner(this.weapon.spec.label);
         continue;
       }
-      if (h.kind === 'shot') {
-        if (h.shot.dead) continue;
-        // インク弾を撃ち落とした
-        h.shot.dead = true;
+      if (h.target.boss && h.target.guarded) {
+        // ガード中のボス：点も入らず、ミスにもしない
         otherHit = true;
-        this.score = { ...this.score, score: this.score.score + SHOT_POINTS };
-        this.effects.shockwave(h.point, camera.position);
-        this.sfx.shotPop();
+        h.target.damage();
+        this.hud.popup(camera, h.point, h.zone, 0, 'GUARD');
+        this.sfx.empty();
         continue;
       }
       targetHits.push(h);
@@ -357,7 +321,7 @@ export class Game {
     }
 
     if (shotHits.length === 0 && otherHit) {
-      // アイテムやインク弾だけ撃った場合はミス扱いにしない
+      // アイテムやガード中のボスだけ撃った場合はミス扱いにしない
       this.score = { ...this.score, shots: this.score.shots + 1 };
     } else {
       const { state, points } = applyShot(this.score, shotHits, spec.scoreMultiplier);
@@ -390,10 +354,8 @@ export class Game {
   private clearField(): void {
     this.targets.forEach((t) => t.dispose());
     this.items.forEach((i) => i.dispose());
-    this.shots.forEach((s) => s.dispose());
     this.targets = [];
     this.items = [];
-    this.shots = [];
     this.boss = null;
     this.brain = null;
     this.effects.clear();
@@ -430,28 +392,28 @@ export class Game {
   private stageClear(): void {
     this.phase = 'cleared';
     this.score = defeatBoss(this.score);
-    const stars = stageStars(this.damageTaken);
+    const stars = stageStars(this.timeLeft, this.stage.timeLimit);
     this.stars.push(stars);
-    this.lives = livesAfterClear(this.lives);
-    const bonus = clearBonus(stars, this.lives);
+    const bonus = clearBonus(stars, this.timeLeft);
     this.score = { ...this.score, score: this.score.score + bonus };
     for (const t of this.targets) if (!t.boss) t.dismiss();
-    for (const sh of this.shots) sh.dead = true;
     this.hud.setBoss(null);
     this.hud.showBanner(`BOSS DOWN! +${BOSS_BONUS}`, 2);
     this.sfx.fanfare();
     const allClear = this.stageIndex >= STAGES.length - 1;
     // 撃破演出を少し見せてから通知する
     window.setTimeout(() => {
-      this.cb.onStageClear({ stage: this.stageIndex + 1, stars, bonus, lives: this.lives, score: this.score.score, allClear });
+      this.cb.onStageClear({ stage: this.stageIndex + 1, stars, bonus, timeLeft: this.timeLeft, score: this.score.score, allClear });
     }, 1400);
   }
 
-  private gameOver(): void {
+  private timeUpFail(): void {
     this.phase = 'over';
     this.hud.setBoss(null);
-    this.hud.showBanner('GAME OVER', 2);
-    window.setTimeout(() => this.cb.onGameOver(this.result(false)), 1400);
+    this.hud.showBanner('TIME UP', 2);
+    this.sfx.timeUp();
+    for (const t of this.targets) t.dismiss();
+    window.setTimeout(() => this.cb.onGameOver(this.result(false, true)), 1400);
   }
 
   /** 全ステージクリア後に呼ぶ */
@@ -459,8 +421,8 @@ export class Game {
     return this.result(true);
   }
 
-  private result(allClear: boolean): GameResult {
-    return { ...this.score, stageReached: this.stageIndex + 1, allClear, stars: [...this.stars] };
+  private result(allClear: boolean, timeUp = false): GameResult {
+    return { ...this.score, stageReached: this.stageIndex + 1, allClear, timeUp, stars: [...this.stars] };
   }
 
   private spawn(): void {
@@ -473,7 +435,7 @@ export class Game {
       speed: st.speed,
       rng: this.rng,
       expression,
-      fireIntervalMul: st.fireIntervalMul,
+      lifeSec: st.stay + this.rng() * 2,
     });
     this.targets.push(t);
     this.view.scene.add(t.mesh);

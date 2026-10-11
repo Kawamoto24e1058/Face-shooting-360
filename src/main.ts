@@ -222,13 +222,29 @@ async function goCountdown(then: () => void): Promise<void> {
   then();
 }
 
-function startRun(): void {
+function startRun(stage = 0): void {
   game?.dispose();
   game = new Game(view, effects, sfx, hud, currentSkins(), store.getState().settings, {
     onStageClear: goStageClear,
     onGameOver: (result) => endRun(result),
   });
-  playStage(0);
+  playStage(stage);
+}
+
+/** 正面を合わせ直して、指定のステージから始める */
+function retryFrom(stage: number): void {
+  store.setState({ phase: 'calibrate' });
+  const st = store.getState();
+  show(
+    calibrateScreen({
+      sensor: st.sensorActive,
+      camera: st.cameraActive,
+      onReady: () => {
+        orientation.calibrate();
+        void goCountdown(() => startRun(stage));
+      },
+    }),
+  );
 }
 
 function playStage(index: number): void {
@@ -280,6 +296,7 @@ function endRun(result: GameResult): void {
       best: store.getState().bestScore,
       isBest: result.score > prevBest,
       onRetry: goCalibrate,
+      onRetryStage: () => retryFrom(result.stageReached - 1),
       onTitle: goTitle,
     }),
   );

@@ -9,21 +9,21 @@ function run(brain: BossBrain, seconds: number, hp = 1): BossAction[] {
 
 describe('BossBrain', () => {
   it('cycles through every pattern', () => {
-    const acts = run(new BossBrain({ volley: 3, minions: 2 }), 30);
+    const acts = run(new BossBrain({ minions: 2 }), 30);
     const patterns = acts.filter((a) => a.type === 'pattern').map((a) => (a as { pattern: string }).pattern);
     for (const p of new Set(BOSS_CYCLE)) expect(patterns).toContain(p);
   });
-  it('fires once per volley pattern with the configured count', () => {
-    const acts = run(new BossBrain({ volley: 3, minions: 2 }), 30);
-    const volleys = acts.filter((a) => a.type === 'volley');
-    const patterns = acts.filter((a) => a.type === 'pattern' && a.pattern === 'volley');
-    expect(volleys.length).toBe(patterns.length);
-    expect(volleys.every((v) => v.type === 'volley' && v.count === 3)).toBe(true);
+  it('summons once per summon pattern with the configured count', () => {
+    const acts = run(new BossBrain({ minions: 2 }), 30);
+    const summons = acts.filter((a) => a.type === 'summon');
+    const patterns = acts.filter((a) => a.type === 'pattern' && a.pattern === 'summon');
+    expect(summons.length).toBe(patterns.length);
+    expect(summons.every((v) => v.type === 'summon' && v.count === 2)).toBe(true);
   });
-  it('gets faster and fires more when hurt', () => {
-    const calm = run(new BossBrain({ volley: 3, minions: 2 }), 30, 1).filter((a) => a.type === 'volley');
-    const angry = run(new BossBrain({ volley: 3, minions: 2 }), 30, 0.2).filter((a) => a.type === 'volley');
+  it('gets faster and calls more minions when hurt', () => {
+    const calm = run(new BossBrain({ minions: 2 }), 30, 1).filter((a) => a.type === 'summon');
+    const angry = run(new BossBrain({ minions: 2 }), 30, 0.2).filter((a) => a.type === 'summon');
     expect(angry.length).toBeGreaterThan(calm.length);
-    expect(angry.every((v) => v.type === 'volley' && v.count === 5)).toBe(true);
+    expect(angry.every((v) => v.type === 'summon' && v.count === 3)).toBe(true);
   });
 });
