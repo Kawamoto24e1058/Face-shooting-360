@@ -1,7 +1,7 @@
 import './style.css';
 import { OrientationController, requestOrientationPermission } from './core/orientation';
 import { CameraFeed } from './core/camera';
-import { Game } from './core/game';
+import { Game, type GameResult, type StageClearInfo } from './core/game';
 import { SceneView } from './render/scene';
 import { Effects } from './render/effects';
 import type { FaceSkin } from './render/target';
@@ -11,7 +11,7 @@ import { createDummyFace } from './face/dummyFace';
 import { createFaceSkin, disposeFaceSkin } from './render/skin';
 import { photoExpressionFrom } from './core/expressions';
 import { store, submitResult, updateSettings } from './state/store';
-import { calibrateScreen, countdownScreen, resultScreen, titleScreen } from './screens/screens';
+import { calibrateScreen, countdownScreen, resultScreen, stageClearScreen, titleScreen } from './screens/screens';
 import { captureScreen, type CaptureDone } from './screens/capture';
 import { blobToCanvas, canvasToBlob, deleteFace, loadFace, saveFace, type StoredFace } from './face/store';
 import { isInAppBrowser, isSecure, ScreenWakeLock } from './util/env';
@@ -123,6 +123,7 @@ function goTitle(): void {
     titleScreen({
       settings: st.settings,
       bestScore: st.bestScore,
+      bestStage: st.bestStage,
       inAppBrowser: isInAppBrowser(),
       insecure: !isSecure(),
       faceThumb,
@@ -190,6 +191,7 @@ async function start(): Promise<void> {
   goCalibrate();
 }
 
+/** 新しいゲームを始める：正面を決めて、カウントダウン、ステージ1 */
 function goCalibrate(): void {
   store.setState({ phase: 'calibrate' });
   const st = store.getState();
@@ -199,13 +201,13 @@ function goCalibrate(): void {
       camera: st.cameraActive,
       onReady: () => {
         orientation.calibrate();
-        void goCountdown();
+        void goCountdown(startRun);
       },
     }),
   );
 }
 
-async function goCountdown(): Promise<void> {
+async function goCountdown(then: () => void): Promise<void> {
   store.setState({ phase: 'countdown' });
   const c = countdownScreen();
   show(c.root);
@@ -217,31 +219,70 @@ async function goCountdown(): Promise<void> {
   c.set('GO!');
   sfx.beep(true);
   await sleep(400);
-  goPlay();
+  then();
 }
 
-function goPlay(): void {
+function startRun(): void {
+  game?.dispose();
+  game = new Game(view, effects, sfx, hud, currentSkins(), store.getState().settings, {
+    onStageClear: goStageClear,
+    onGameOver: (result) => endRun(result),
+  });
+  playStage(0);
+}
+
+function playStage(index: number): void {
   store.setState({ phase: 'play' });
   show(null);
   hud.show(true);
   void wakeLock.acquire();
-  game = new Game(view, effects, sfx, hud, currentSkins(), store.getState().settings, (result) => {
-    const prevBest = store.getState().bestScore;
-    hud.show(false);
-    game?.dispose();
-    game = null;
-    void wakeLock.release();
-    submitResult(result);
-    show(
-      resultScreen({
-        result,
-        best: store.getState().bestScore,
-        isBest: result.score > prevBest,
-        onRetry: goCalibrate,
-        onTitle: goTitle,
-      }),
-    );
-  });
+  game?.startStage(index);
+}
+
+function goStageClear(info: StageClearInfo): void {
+  store.setState({ phase: 'stageClear' });
+  hud.show(false);
+  show(
+    stageClearScreen({
+      info,
+      onNext: () => {
+        if (!game) return;
+        if (info.allClear) {
+          endRun(game.finishAllClear());
+          return;
+        }
+        // 体ごと回ったあとなので、次のステージの前に正面を合わせ直す
+        orientation.calibrate();
+        void goCountdown(() => playStage(info.stage));
+      },
+      onTitle: () => {
+        // 途中でやめても、到達ステージとスコアは記録する
+        if (game) submitResult({ ...game.finishAllClear(), allClear: info.allClear });
+        game?.dispose();
+        game = null;
+        void wakeLock.release();
+        goTitle();
+      },
+    }),
+  );
+}
+
+function endRun(result: GameResult): void {
+  const prevBest = store.getState().bestScore;
+  hud.show(false);
+  game?.dispose();
+  game = null;
+  void wakeLock.release();
+  submitResult(result);
+  show(
+    resultScreen({
+      result,
+      best: store.getState().bestScore,
+      isBest: result.score > prevBest,
+      onRetry: goCalibrate,
+      onTitle: goTitle,
+    }),
+  );
 }
 
 // ---- 入力 ----
@@ -297,16 +338,14 @@ if (import.meta.env.DEV) {
     orientation.setDragAngles(t.azimuth + du, t.elevation + dv);
     return true;
   };
-  // ボスに照準を合わせる / 時間を進める
+  // ボスに照準を合わせる / ボス戦へ進める
   (window as unknown as Record<string, unknown>).__debugAimBoss = (du = 0, dv = 0) => {
     const t = game?.activeTargets.find((x) => x.boss);
     if (!t) return false;
     orientation.setDragAngles(t.azimuth + du, t.elevation + dv);
     return true;
   };
-  (window as unknown as Record<string, unknown>).__debugSkip = (sec: number) => {
-    if (game) game.elapsed += sec;
-  };
+  (window as unknown as Record<string, unknown>).__debugBoss = () => game?.debugToBoss();
 }
 
 applySettings();

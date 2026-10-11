@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import { ZONE_BASE, ZONE_COLOR, ZONE_LABEL, ZONE_NAME_JA, type Zone } from '../core/score';
 import type { Target } from '../render/target';
+import type { InkShot } from '../render/projectile';
 
 export interface HudValues {
-  timeLeft: number;
+  lives: number;
+  maxLives: number;
+  /** 画面上部中央の進行表示（例：「STAGE 1　あと5体」） */
+  status: string;
   score: number;
   ammo: number;
   magazine: number;
@@ -20,7 +24,9 @@ const inv = new THREE.Quaternion();
 /** プレイ中の HUD（DOM）と、画面外の的を示す矢印（2D canvas） */
 export class Hud {
   private readonly el: HTMLElement;
-  private readonly time: HTMLElement;
+  private readonly lives: HTMLElement;
+  private readonly status: HTMLElement;
+  private readonly hurt: HTMLElement;
   private readonly score: HTMLElement;
   private readonly ammo: HTMLElement;
   private readonly weapon: HTMLElement;
@@ -40,7 +46,8 @@ export class Hud {
   constructor(root: HTMLElement, overlay: HTMLCanvasElement, ink: HTMLElement, onReload: () => void) {
     this.el = root;
     root.innerHTML = `
-      <div class="hud-top"><span data-k="time"></span><span data-k="score"></span></div>
+      <div class="hurt" data-k="hurt"></div>
+      <div class="hud-top"><span data-k="lives" class="lives"></span><span data-k="status" class="status"></span><span data-k="score"></span></div>
       <div class="boss-bar" data-k="boss" hidden><span>BOSS</span><i><b data-k="bossfill"></b></i></div>
       <div class="combo" data-k="combo"></div>
       <div class="combo" data-k="banner" style="top:40%;font-size:28px;color:#fff"></div>
@@ -51,7 +58,9 @@ export class Hud {
         <button class="reload-btn" data-k="reload" type="button">RELOAD</button>
       </div>`;
     const q = (k: string) => root.querySelector(`[data-k="${k}"]`) as HTMLElement;
-    this.time = q('time');
+    this.lives = q('lives');
+    this.status = q('status');
+    this.hurt = q('hurt');
     this.score = q('score');
     this.ammo = q('ammo');
     this.weapon = q('weapon');
@@ -77,7 +86,8 @@ export class Hud {
 
   update(h: HudValues): void {
     const key = [
-      Math.ceil(h.timeLeft),
+      h.lives,
+      h.status,
       h.score,
       h.ammo,
       h.reloading ? Math.round(h.reloadProgress * 10) : -1,
@@ -87,7 +97,8 @@ export class Hud {
     ].join('|');
     if (key === this.last) return;
     this.last = key;
-    this.time.textContent = `⏱ ${Math.max(0, Math.ceil(h.timeLeft))}`;
+    this.lives.textContent = '♥'.repeat(Math.max(0, h.lives)) + '♡'.repeat(Math.max(0, h.maxLives - h.lives));
+    this.status.textContent = h.status;
     this.score.textContent = h.score.toLocaleString();
     this.ammo.textContent = h.reloading ? `RELOAD ${Math.round(h.reloadProgress * 100)}%` : `${h.ammo} / ${h.magazine}`;
     this.weapon.textContent = h.powerupRemaining > 0 ? `${h.weaponLabel} ${Math.ceil(h.powerupRemaining)}s` : h.weaponLabel;
@@ -102,15 +113,27 @@ export class Hud {
   }
 
   /** 照準の下にある部位を、名前と基本点で示す */
-  setAim(target: Zone | 'item' | null): void {
+  setAim(target: Zone | 'item' | 'shot' | null): void {
     if (target === this.aimKey) return;
     this.aimKey = target;
     if (target === null) {
       this.aim.textContent = '';
       return;
     }
-    this.aim.style.color = target === 'item' ? '#ffffff' : ZONE_COLOR[target];
-    this.aim.textContent = target === 'item' ? 'アイテム' : `${ZONE_NAME_JA[target]} ${ZONE_BASE[target]}`;
+    if (target === 'item' || target === 'shot') {
+      this.aim.style.color = target === 'item' ? '#ffffff' : '#ff7ac0';
+      this.aim.textContent = target === 'item' ? 'アイテム' : 'インク弾';
+      return;
+    }
+    this.aim.style.color = ZONE_COLOR[target];
+    this.aim.textContent = `${ZONE_NAME_JA[target]} ${ZONE_BASE[target]}`;
+  }
+
+  /** 被弾：画面全体に赤いインク（演出OFFでも出す。ダメージは必ず伝える） */
+  damage(): void {
+    this.hurt.classList.remove('show');
+    void this.hurt.offsetWidth;
+    this.hurt.classList.add('show');
   }
 
   showBanner(text: string, sec = 1.5): void {
@@ -152,7 +175,7 @@ export class Hud {
   }
 
   /** 画面外の的の方向を、画面端の矢印で示す */
-  drawArrows(camera: THREE.Camera, targets: readonly Target[]): void {
+  drawArrows(camera: THREE.Camera, targets: readonly Target[], shots: readonly InkShot[] = []): void {
     const c = this.overlay;
     const dpr = Math.min(window.devicePixelRatio, 2);
     const w = window.innerWidth;
@@ -165,40 +188,60 @@ export class Hud {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     inv.copy(camera.quaternion).invert();
-    const margin = 28;
     for (const t of targets) {
       if (!t.alive) continue;
-      v.copy(t.position).project(camera);
-      const onScreen = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
-      if (onScreen) continue;
-      // カメラ座標系での方向（x: 右, y: 上）
-      v.copy(t.position).applyQuaternion(inv);
-      let dx = v.x;
-      let dy = -v.y;
-      if (Math.hypot(dx, dy) < 1e-3) dy = 1; // 真後ろは下向き矢印
-      const ang = Math.atan2(dy, dx);
-      // 画面端（矩形）との交点
-      const hw = w / 2 - margin;
-      const hh = h / 2 - margin;
-      const s = Math.min(hw / Math.abs(Math.cos(ang) || 1e-6), hh / Math.abs(Math.sin(ang) || 1e-6));
-      const x = w / 2 + Math.cos(ang) * s;
-      const y = h / 2 + Math.sin(ang) * s;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(ang);
-      ctx.fillStyle = t.boss ? '#ffffff' : t.rare ? '#ffe14f' : '#ff4fa3';
-      if (t.boss) ctx.scale(1.8, 1.8);
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(14, 0);
-      ctx.lineTo(-8, -11);
-      ctx.lineTo(-8, 11);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
+      const color = t.boss ? '#ffffff' : t.rare ? '#ffe14f' : '#ff4fa3';
+      this.arrow(camera, t.position, color, t.boss ? 1.8 : 1, w, h);
     }
+    // 画面外から飛んでくるインク弾は、近いほど大きい警告の矢印で知らせる
+    const now = performance.now() / 1000;
+    for (const sh of shots) {
+      if (sh.dead) continue;
+      const near = Math.max(0, Math.min(1, 1 - (sh.position.length() - 1) / 6));
+      const pulse = 1 + 0.15 * Math.sin(now * 20);
+      this.arrow(camera, sh.position, '#ff7a1a', (1.1 + near * 0.9) * pulse, w, h, true);
+    }
+  }
+
+  private arrow(camera: THREE.Camera, pos: THREE.Vector3, color: string, scale: number, w: number, h: number, warn = false): void {
+    const ctx = this.octx;
+    const margin = 28;
+    v.copy(pos).project(camera);
+    const onScreen = v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+    if (onScreen) return;
+    // カメラ座標系での方向（x: 右, y: 上）
+    v.copy(pos).applyQuaternion(inv);
+    let dx = v.x;
+    let dy = -v.y;
+    if (Math.hypot(dx, dy) < 1e-3) dy = 1; // 真後ろは下向き矢印
+    const ang = Math.atan2(dy, dx);
+    // 画面端（矩形）との交点
+    const hw = w / 2 - margin;
+    const hh = h / 2 - margin;
+    const s = Math.min(hw / Math.abs(Math.cos(ang) || 1e-6), hh / Math.abs(Math.sin(ang) || 1e-6));
+    ctx.save();
+    ctx.translate(w / 2 + Math.cos(ang) * s, h / 2 + Math.sin(ang) * s);
+    ctx.rotate(ang);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(14, 0);
+    ctx.lineTo(-8, -11);
+    ctx.lineTo(-8, 11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    if (warn) {
+      ctx.rotate(-ang);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', 0, 0);
+    }
+    ctx.restore();
   }
 
   clearOverlay(): void {

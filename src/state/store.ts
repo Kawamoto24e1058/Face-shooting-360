@@ -1,5 +1,5 @@
 import { createStore } from 'zustand/vanilla';
-import type { ScoreState } from '../core/score';
+import type { GameResult } from '../core/game';
 
 export interface Settings {
   seated: boolean;
@@ -10,13 +10,15 @@ export interface Settings {
   maxTargets: number;
 }
 
-export type Phase = 'title' | 'calibrate' | 'countdown' | 'play' | 'result';
+export type Phase = 'title' | 'calibrate' | 'countdown' | 'play' | 'stageClear' | 'result';
 
 export interface AppState {
   phase: Phase;
   settings: Settings;
   bestScore: number;
-  lastResult: ScoreState | null;
+  /** 到達した最高ステージ（1始まり、0 は未プレイ） */
+  bestStage: number;
+  lastResult: GameResult | null;
   /** カメラ・センサーの取得結果（UI 表示用） */
   cameraActive: boolean;
   sensorActive: boolean;
@@ -24,8 +26,9 @@ export interface AppState {
 
 const SETTINGS_KEY = 'face360.settings';
 const BEST_KEY = 'face360.best';
+const BEST_STAGE_KEY = 'face360.bestStage';
 
-export const DEFAULT_SETTINGS: Settings = { seated: false, camera: true, volume: 0.8, effects: true, maxTargets: 12 };
+export const DEFAULT_SETTINGS: Settings = { seated: false, camera: true, volume: 0.8, effects: true, maxTargets: 7 };
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -36,9 +39,9 @@ function load<T>(key: string, fallback: T): T {
   }
 }
 
-function loadBest(): number {
+function loadBest(key = BEST_KEY): number {
   try {
-    return Number(localStorage.getItem(BEST_KEY)) || 0;
+    return Number(localStorage.getItem(key)) || 0;
   } catch {
     return 0;
   }
@@ -49,6 +52,7 @@ export const store = createStore<AppState>(() => ({
   phase: 'title',
   settings: load(SETTINGS_KEY, DEFAULT_SETTINGS),
   bestScore: loadBest(),
+  bestStage: loadBest(BEST_STAGE_KEY),
   lastResult: null,
   cameraActive: false,
   sensorActive: false,
@@ -64,11 +68,13 @@ export function updateSettings(patch: Partial<Settings>): void {
   }
 }
 
-export function submitResult(result: ScoreState): void {
+export function submitResult(result: GameResult): void {
   const best = Math.max(store.getState().bestScore, result.score);
-  store.setState({ lastResult: result, bestScore: best, phase: 'result' });
+  const bestStage = Math.max(store.getState().bestStage, result.allClear ? result.stageReached + 1 : result.stageReached);
+  store.setState({ lastResult: result, bestScore: best, bestStage, phase: 'result' });
   try {
     localStorage.setItem(BEST_KEY, String(best));
+    localStorage.setItem(BEST_STAGE_KEY, String(bestStage));
   } catch {
     /* 保存できなくても続行 */
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { pickExpression, photoExpressionFrom, PERSONALITY } from './expressions';
+import { pickExpression, photoExpressionFrom } from './expressions';
+import { EXPRESSIONS } from '../face/mesh';
 
 const seq = (seed = 3) => {
   let s = seed;
@@ -7,22 +8,19 @@ const seq = (seed = 3) => {
 };
 
 describe('pickExpression', () => {
-  it('only uses expressions unlocked for the wave', () => {
+  it('only uses the allowed expressions', () => {
     const rng = seq();
-    for (let i = 0; i < 500; i++) {
-      const e = pickExpression(rng, 0);
-      expect(PERSONALITY[e].fromWave).toBe(0);
-    }
+    for (let i = 0; i < 500; i++) expect(['neutral', 'smile']).toContain(pickExpression(rng, ['neutral', 'smile']));
   });
-  it('eventually uses every expression in later waves', () => {
+  it('eventually uses every allowed expression', () => {
     const rng = seq(9);
-    const seen = new Set(Array.from({ length: 2000 }, () => pickExpression(rng, 8)));
+    const seen = new Set(Array.from({ length: 2000 }, () => pickExpression(rng, EXPRESSIONS)));
     expect(seen.size).toBe(6);
   });
   it('favors the photo expression', () => {
     const count = (bias: 'smile' | null) => {
       const rng = seq(11);
-      return Array.from({ length: 4000 }, () => pickExpression(rng, 0, bias)).filter((e) => e === 'smile').length;
+      return Array.from({ length: 4000 }, () => pickExpression(rng, ['neutral', 'smile'], bias)).filter((e) => e === 'smile').length;
     };
     expect(count('smile')).toBeGreaterThan(count(null));
   });

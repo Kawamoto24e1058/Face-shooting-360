@@ -38,15 +38,14 @@ const FLINCH_SEC = 0.35;
 const BLEND_SEC = 0.18;
 
 export const BOSS_PARAMS = {
-  hp: 16,
-  size: 2.6,
-  distance: 7.5,
+  size: 2.1,
+  distance: 8.5,
   /** 裏の弱点に当てたときのダメージ */
   weakDamage: 4,
-  /** 回転の速さ [rad/s]（裏の弱点が周期的に見える） */
-  spin: 0.55,
-  /** 周回の速さ [rad/s] */
-  orbit: 0.12,
+  /** 回転の速さ [rad/s]（裏の弱点を見せるとき） */
+  spin: 1.6,
+  /** 移動の速さ [rad/s] */
+  move: 1.1,
 } as const;
 
 export interface TargetOptions {
@@ -55,6 +54,12 @@ export interface TargetOptions {
   rng: () => number;
   expression?: Expression;
   boss?: boolean;
+  /** 体力の上書き（ボスはステージごとに決める） */
+  hp?: number;
+  /** 射撃間隔の倍率（ステージで決める） */
+  fireIntervalMul?: number;
+  /** 寿命の上書き（Infinity でずっと残る） */
+  lifeSec?: number;
 }
 
 export class Target {
@@ -83,11 +88,20 @@ export class Target {
   private readonly swayPhase: number;
   private readonly swayFreq: number;
   private flinch = 0;
-  private chargeHold = 0;
   /** 表情の重み（morphTargetInfluences に入れる値の目標） */
   private readonly influence: number[];
   private readonly weakMaterial: THREE.MeshLambertMaterial | null = null;
   private readonly decor: Decor;
+  private fireCooldown: number;
+  private readonly fireIntervalMul: number;
+  /** 撃つ直前（口を開けて知らせる）の残り時間 */
+  windup = 0;
+  /** 突進でプレイヤーにたどり着いた（ゲーム側で1回だけダメージにする） */
+  private attackPending = false;
+  /** ボス：回転して裏を見せているか */
+  bossSpin = false;
+  private bossAzTarget: number | null = null;
+  private spinAngle = 0;
 
   constructor(skin: FaceSkin, p: SpawnPoint, opts: TargetOptions) {
     const { rng } = opts;
@@ -103,16 +117,19 @@ export class Target {
     this.moving = this.boss || opts.moving || this.personality.alwaysMoving || this.personality.charge;
     const speed = opts.speed * this.personality.speedMul;
     this.azVel = this.boss
-      ? BOSS_PARAMS.orbit
+      ? 0
       : this.moving && !this.personality.charge
         ? (rng() < 0.5 ? -1 : 1) * speed * (0.5 + rng() * 0.5)
         : 0;
     this.bobAmp = this.moving ? (4 + rng() * 6) * DEG : 0;
     this.bobFreq = 0.5 + rng();
-    this.hp = this.maxHp = this.boss ? BOSS_PARAMS.hp : this.personality.hp;
+    this.hp = this.maxHp = opts.hp ?? this.personality.hp;
     // 遠くても見えるよう、距離に応じて少し大きくする
     this.size = this.boss ? BOSS_PARAMS.size : (p.rare ? 1.0 : 1.35) * (0.7 + 0.3 * (p.distance / SPAWN_PARAMS.distanceMin));
-    this.lifeSec = this.boss ? Infinity : 6 + rng() * 4;
+    this.lifeSec = opts.lifeSec ?? (this.boss ? Infinity : 9 + rng() * 4);
+    this.fireIntervalMul = opts.fireIntervalMul ?? 1;
+    // 出てすぐは撃たない（最初の1発は少し遅らせる）
+    this.fireCooldown = this.personality.fireInterval * this.fireIntervalMul * (0.6 + rng() * 0.6);
     this.swayPhase = rng() * Math.PI * 2;
     this.swayFreq = 0.3 + rng() * 0.3;
     this.influence = new Array(EXPRESSIONS.length - 1).fill(0);
@@ -168,6 +185,46 @@ export class Target {
     return this.weakOpen ? 'eye' : zone;
   }
 
+  /** 口の位置（インク弾の発射点） */
+  mouthWorld(): THREE.Vector3 {
+    return this.mesh.localToWorld(new THREE.Vector3(0, -0.28, 0.15));
+  }
+
+  /**
+   * 射撃のタイマーを進める。撃つ瞬間なら弾数を返す（それ以外は 0）。
+   * 撃つ前に windup の間だけ口を開けて知らせる。
+   */
+  takeFire(dt: number, rng: () => number): number {
+    const P = this.personality;
+    if (!this.alive || this.state === 'enter' || !Number.isFinite(P.fireInterval) || this.boss) return 0;
+    this.fireCooldown -= dt;
+    this.windup = Math.max(0, Math.min(EXPRESSION_PARAMS.fireWindupSec, this.fireCooldown));
+    if (this.fireCooldown > 0) return 0;
+    this.fireCooldown = P.fireInterval * this.fireIntervalMul * (0.7 + rng() * 0.6);
+    return P.burst;
+  }
+
+  /** 突進でたどり着いたか（1回だけ true を返す） */
+  consumeAttack(): boolean {
+    const a = this.attackPending;
+    this.attackPending = false;
+    return a;
+  }
+
+  /** 退場させる（ボス戦の開始時など） */
+  dismiss(): void {
+    if (this.alive) this.setState('leave');
+  }
+
+  /** ボス：指定の方位へ移動する */
+  bossMoveTo(azimuth: number): void {
+    this.bossAzTarget = azimuth;
+  }
+
+  get bossMoving(): boolean {
+    return this.bossAzTarget !== null;
+  }
+
   /** ダメージを与える。倒したら true */
   damage(amount = 1): boolean {
     if (!this.alive) return false;
@@ -193,7 +250,9 @@ export class Target {
             Math.max(SPAWN_PARAMS.elevationMin, this.baseElevation + Math.sin(this.age * this.bobFreq * Math.PI * 2) * this.bobAmp),
           );
     }
-    if (this.alive && this.personality.charge) this.updateCharge(dt);
+    // ボスは怒り顔だが突進はしない（攻撃パターンはゲーム側で決める）
+    if (this.alive && this.personality.charge && !this.boss) this.updateCharge(dt);
+    if (this.boss) this.updateBoss(dt);
 
     let scale = 1;
     switch (this.state) {
@@ -233,16 +292,38 @@ export class Target {
     (Array.isArray(mats) ? mats : [mats]).forEach((m) => m.dispose());
   }
 
-  /** 突進：近づいて少し止まり、離れていく */
+  /** 突進：近づいてきて、たどり着いたら体当たり（ダメージ）して去る */
   private updateCharge(dt: number): void {
     const P = EXPRESSION_PARAMS;
-    if (this.chargeHold > 0) {
-      this.chargeHold -= dt;
-      if (this.chargeHold <= 0) this.setState('leave');
-      return;
+    if (this.state === 'enter') return;
+    this.distance = Math.max(P.chargeMinDistance, this.distance - P.chargeSpeed * this.personality.speedMul * dt);
+    if (this.distance <= P.chargeMinDistance) {
+      this.attackPending = true;
+      this.setState('leave');
     }
-    this.distance = Math.max(P.chargeMinDistance, this.distance - P.chargeSpeed * dt);
-    if (this.distance <= P.chargeMinDistance) this.chargeHold = 1.2;
+  }
+
+  private updateBoss(dt: number): void {
+    if (this.bossAzTarget !== null) {
+      // 近い向きで回り込む
+      let d = this.bossAzTarget - this.azimuth;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      const step = BOSS_PARAMS.move * dt;
+      if (Math.abs(d) <= step) {
+        this.azimuth = this.bossAzTarget;
+        this.bossAzTarget = null;
+      } else {
+        this.azimuth += Math.sign(d) * step;
+      }
+    }
+    // 回転して裏を見せる／正面に戻る
+    const full = Math.PI * 2;
+    if (this.bossSpin) this.spinAngle = (this.spinAngle + BOSS_PARAMS.spin * dt) % full;
+    else if (this.spinAngle !== 0) {
+      const back = full - this.spinAngle;
+      const step = BOSS_PARAMS.spin * 1.5 * dt;
+      this.spinAngle = back <= step ? 0 : this.spinAngle + step;
+    }
   }
 
   /** 今の状態に合わせた表情の重みを決めて、なめらかに近づける */
@@ -255,7 +336,10 @@ export class Target {
       if (i >= 0) target[i] = Math.max(target[i], v);
     };
     const e = this.expression;
-    if (this.state === 'hit' || this.flinch > 0) {
+    if (this.windup > 0 && this.alive) {
+      // 撃つ前：口を大きく開けて知らせる
+      set('mouthOpen', 1);
+    } else if (this.state === 'hit' || this.flinch > 0) {
       // 当たったら目をつぶる（顔は崩さない）
       set('eyesClosed', 1);
       set('smile', 0.3);
@@ -292,8 +376,8 @@ export class Target {
     this.mesh.lookAt(0, 0, 0);
     if (!this.skin.geometry) return;
     if (this.boss) {
-      // ボスはゆっくり回転し、裏の弱点を周期的に見せる
-      this.mesh.rotateY(this.age * BOSS_PARAMS.spin);
+      // ボスは攻撃パターンに合わせて回転し、裏の弱点を見せる
+      this.mesh.rotateY(this.spinAngle);
       return;
     }
     // 少し首を振らせて、立体であることが分かるようにする

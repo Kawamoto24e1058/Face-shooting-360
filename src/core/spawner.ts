@@ -12,8 +12,6 @@ export const SPAWN_PARAMS = {
   distanceMax: 9,
   /** 真上・真下のレア的が出る確率 */
   rareChance: 0.05,
-  waveSec: 10,
-  finalWaveAt: 60,
 } as const;
 
 export interface SpawnPoint {
@@ -63,32 +61,4 @@ export function pickSpawnPoint(rng: Rng, seated: boolean): SpawnPoint {
 export function toCartesian(azimuth: number, elevation: number, distance: number): [number, number, number] {
   const c = Math.cos(elevation);
   return [-Math.sin(azimuth) * c * distance, Math.sin(elevation) * distance, -Math.cos(azimuth) * c * distance];
-}
-
-export function waveIndex(elapsedSec: number): number {
-  return Math.floor(elapsedSec / SPAWN_PARAMS.waveSec);
-}
-
-export interface WaveConfig {
-  wave: number;
-  maxConcurrent: number;
-  /** 動く的の割合 */
-  movingRatio: number;
-  /** 角速度[rad/s]の上限 */
-  speed: number;
-  spawnIntervalSec: number;
-  final: boolean;
-}
-
-/** cap: 同時表示数の上限（設定・端末性能で調整） */
-export function waveConfig(elapsedSec: number, cap: number): WaveConfig {
-  const wave = waveIndex(elapsedSec);
-  return {
-    wave,
-    maxConcurrent: Math.min(cap, 3 + wave * 2),
-    movingRatio: Math.min(0.9, 0.1 + wave * 0.15),
-    speed: (8 + wave * 4) * DEG,
-    spawnIntervalSec: Math.max(0.4, 1.6 - wave * 0.2),
-    final: elapsedSec >= SPAWN_PARAMS.finalWaveAt,
-  };
 }

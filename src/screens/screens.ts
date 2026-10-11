@@ -1,4 +1,6 @@
-import { accuracy, ZONE_LABEL, ZONES, type ScoreState } from '../core/score';
+import { accuracy, ZONE_LABEL, ZONES } from '../core/score';
+import type { GameResult, StageClearInfo } from '../core/game';
+import { STAGES } from '../core/stages';
 import type { Settings } from '../state/store';
 
 /** 画面（タイトル・キャリブレーション・カウントダウン・リザルト）の DOM を組み立てる */
@@ -23,6 +25,7 @@ function button(label: string, onClick: () => void, secondary = false): HTMLButt
 export interface TitleOptions {
   settings: Settings;
   bestScore: number;
+  bestStage: number;
   inAppBrowser: boolean;
   insecure: boolean;
   /** 保存済みの顔のサムネイル（無ければ null） */
@@ -52,7 +55,8 @@ export function titleScreen(o: TitleOptions): HTMLElement {
   const volume = el('input', { type: 'range', min: '0', max: '1', step: '0.1', value: String(s.volume) });
   volume.addEventListener('input', () => o.onSettings({ volume: Number(volume.value) }));
   const maxTargets = el('select');
-  for (const n of [6, 10, 12, 16, 20]) maxTargets.append(el('option', { value: String(n), textContent: `${n}体`, selected: n === s.maxTargets }));
+  const cur = Math.min(7, s.maxTargets);
+  for (const n of [3, 5, 7]) maxTargets.append(el('option', { value: String(n), textContent: `${n}体`, selected: n === cur }));
   maxTargets.addEventListener('change', () => o.onSettings({ maxTargets: Number(maxTargets.value) }));
 
   const warnings: HTMLElement[] = [];
@@ -61,7 +65,7 @@ export function titleScreen(o: TitleOptions): HTMLElement {
 
   return el('div', { className: 'panel' }, [
     el('h1', { textContent: 'Face360' }),
-    el('p', { className: 'note', textContent: '（仮タイトル）360°見回して、出てくる顔の的を撃つ90秒のスコアアタック' }),
+    el('p', { className: 'note', textContent: '（仮タイトル）360°見回して、インクを撃ってくる顔を倒し、ステージごとのボスに挑む' }),
     ...warnings,
     el('div', { className: 'warn', textContent: '⚠ 体ごと回って遊びます。周囲に人や物がないか確認してください。座って遊ぶときは「座りモード」をONにしてください。' }),
     ...(o.pwa.needRefresh
@@ -77,7 +81,13 @@ export function titleScreen(o: TitleOptions): HTMLElement {
       el('label', {}, ['同時に出る的の上限', maxTargets]),
       ...(o.faceThumb ? [el('div', { className: 'setting-row' }, ['顔データ（端末内）', small(button('削除', o.onDeleteFace, true))])] : []),
     ]),
-    el('p', { className: 'note', textContent: `ベストスコア: ${o.bestScore.toLocaleString()}` }),
+    el('p', {
+      className: 'note',
+      textContent:
+        o.bestStage > 0
+          ? `ベスト: ${o.bestStage > STAGES.length ? '全クリア' : `STAGE ${o.bestStage}`}／${o.bestScore.toLocaleString()}点`
+          : `全${STAGES.length}ステージ。飛んでくるインク弾は撃ち落とせます。`,
+    }),
     ...installRow(o),
     el('p', { className: 'note', textContent: 'カメラ映像・顔データは端末内だけで処理し、外部に送信しません。' }),
   ]);
@@ -130,17 +140,41 @@ export function countdownScreen(): { root: HTMLElement; set: (n: string) => void
   return { root: el('div', { className: 'panel clear' }, [n]), set: (t) => (n.textContent = t) };
 }
 
-export function resultScreen(o: { result: ScoreState; best: number; isBest: boolean; onRetry: () => void; onTitle: () => void }): HTMLElement {
+const starText = (n: number) => '★'.repeat(n) + '☆'.repeat(3 - n);
+
+/** ステージクリア画面。次のステージの前に、正面を合わせ直してから始める */
+export function stageClearScreen(o: { info: StageClearInfo; onNext: () => void; onTitle: () => void }): HTMLElement {
+  const i = o.info;
+  return el('div', { className: 'panel' }, [
+    el('h2', { textContent: `STAGE ${i.stage} CLEAR!` }),
+    el('div', { className: 'stars', textContent: starText(i.stars) }),
+    el('p', { textContent: i.stars === 3 ? 'ノーダメージ！' : i.stars === 2 ? '被弾1回' : '被弾2回以上' }),
+    el('table', { className: 'result-table' }, [
+      el('tbody', {}, [
+        el('tr', {}, [el('td', { textContent: 'クリアボーナス' }), el('td', { textContent: `+${i.bonus.toLocaleString()}` })]),
+        el('tr', {}, [el('td', { textContent: 'ライフ' }), el('td', { textContent: '♥'.repeat(i.lives) + '（1回復）' })]),
+        el('tr', {}, [el('td', { textContent: 'スコア' }), el('td', { textContent: i.score.toLocaleString() })]),
+      ]),
+    ]),
+    el('p', { className: 'note', textContent: i.allClear ? '' : '正面を向いてから「次のステージへ」を押してください（向きを合わせ直します）。' }),
+    button(i.allClear ? '結果を見る' : `STAGE ${i.stage + 1} へ`, o.onNext),
+    button('タイトルへ', o.onTitle, true),
+  ]);
+}
+
+export function resultScreen(o: { result: GameResult; best: number; isBest: boolean; onRetry: () => void; onTitle: () => void }): HTMLElement {
   const r = o.result;
   const rows: [string, string][] = [
+    ['到達', r.allClear ? `全${STAGES.length}ステージクリア` : `STAGE ${r.stageReached}`],
+    ...r.stars.map((s, i) => [`STAGE ${i + 1}`, starText(s)] as [string, string]),
     ['命中率', `${Math.round(accuracy(r) * 100)}% (${r.hits}/${r.shots})`],
     ['最大コンボ', String(r.maxCombo)],
-    ['ボス', r.bossDefeated ? '撃破！' : '—'],
     ...ZONES.map((z) => [ZONE_LABEL[z].replace('!', ''), String(r.zoneHits[z])] as [string, string]),
     ['ベストスコア', o.best.toLocaleString()],
   ];
   return el('div', { className: 'panel' }, [
-    el('h2', { textContent: o.isBest ? 'NEW RECORD!' : 'RESULT' }),
+    el('h2', { textContent: r.allClear ? 'ALL CLEAR!' : 'GAME OVER' }),
+    ...(o.isBest ? [el('p', { textContent: 'NEW RECORD!' })] : []),
     el('div', { className: 'big', textContent: r.score.toLocaleString() }),
     el('table', { className: 'result-table' }, [
       el('tbody', {}, rows.map(([k, v]) => el('tr', {}, [el('td', { textContent: k }), el('td', { textContent: v })]))),

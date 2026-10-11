@@ -93,8 +93,38 @@ export class Sfx {
 
   /** 的の出現音。position の方向から聞こえる */
   spawnAt(position: THREE.Vector3): void {
+    const p = this.panner(position);
+    if (p) this.tone(400, 800, 0.15, 'sine', 0.5, 0, p);
+  }
+
+  /** インク弾の発射音（方向付き。後ろから撃たれても分かるように） */
+  shotFired(position: THREE.Vector3): void {
+    const p = this.panner(position);
+    if (p) {
+      this.tone(900, 300, 0.25, 'sawtooth', 0.35, 0, p);
+      this.tone(600, 200, 0.2, 'square', 0.15, 0.05, p);
+    }
+  }
+
+  /** インク弾を撃ち落とした */
+  shotPop(): void {
+    this.tone(1500, 700, 0.08, 'triangle', 0.3);
+  }
+
+  /** 被弾 */
+  hurt(): void {
+    this.noiseBurst(0.35, 900, 0.7);
+    this.tone(220, 70, 0.4, 'square', 0.3);
+  }
+
+  /** ステージクリア */
+  fanfare(): void {
+    [523, 659, 784, 1047].forEach((f, i) => this.tone(f, f, 0.18, 'triangle', 0.3, i * 0.12));
+  }
+
+  private panner(position: THREE.Vector3): PannerNode | null {
     const ctx = this.ctx;
-    if (!ctx || !this.master) return;
+    if (!ctx || !this.master) return null;
     const p = ctx.createPanner();
     p.panningModel = 'HRTF';
     p.distanceModel = 'inverse';
@@ -107,7 +137,7 @@ export class Sfx {
       (p as unknown as { setPosition: (x: number, y: number, z: number) => void }).setPosition(position.x, position.y, position.z);
     }
     p.connect(this.master);
-    this.tone(400, 800, 0.15, 'sine', 0.5, 0, p);
+    return p;
   }
 
   private tone(

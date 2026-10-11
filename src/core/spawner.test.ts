@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickSpawnPoint, SPAWN_PARAMS, toCartesian, waveConfig } from './spawner';
+import { pickSpawnPoint, SPAWN_PARAMS, toCartesian } from './spawner';
 
 function seq(seed = 1) {
   let s = seed;
@@ -37,11 +37,5 @@ describe('spawner', () => {
     expect(x).toBeCloseTo(0);
     expect(y).toBeCloseTo(0);
     expect(z).toBeCloseTo(-5);
-  });
-  it('waves ramp up and respect cap', () => {
-    expect(waveConfig(0, 12).maxConcurrent).toBe(3);
-    expect(waveConfig(85, 12).maxConcurrent).toBe(12);
-    expect(waveConfig(59.9, 12).final).toBe(false);
-    expect(waveConfig(60, 12).final).toBe(true);
   });
 });

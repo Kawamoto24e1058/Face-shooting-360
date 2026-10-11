@@ -110,3 +110,13 @@ html, body {
 .boss-bar[hidden] { display: none; }
 .boss-bar i { flex: 1; height: 10px; border-radius: 5px; background: rgba(0,0,0,0.5); overflow: hidden; border: 1px solid rgba(255,255,255,0.6); }
 .boss-bar b { display: block; height: 100%; width: 100%; background: var(--accent); transition: width 0.15s; }
+
+.hud-top .lives { color: #ff4f6d; letter-spacing: 2px; min-width: 5em; }
+.hud-top .status { font-size: 15px; align-self: center; }
+.hud-top > span:last-child { min-width: 5em; text-align: right; }
+.hurt { position: absolute; inset: 0; opacity: 0; pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, transparent 45%, rgba(255, 30, 90, 0.75) 100%); }
+.hurt.show { animation: hurt 0.7s ease-out; }
+@keyframes hurt { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+.stars { font-size: 44px; color: #ffd23f; letter-spacing: 6px; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }
